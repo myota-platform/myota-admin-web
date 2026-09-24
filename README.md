@@ -19,6 +19,9 @@ and account controls do not leak into the participant-facing application.
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
 
+Programme configuration details, including the current Entity Types JSON
+format, are documented in [`docs/programme-configuration.md`](docs/programme-configuration.md).
+
 ## Local run
 
 Serve `web/` with any static server and set the API base to the gateway,
