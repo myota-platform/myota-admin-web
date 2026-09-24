@@ -12,7 +12,8 @@ and account controls do not leak into the participant-facing application.
 - Dashboard for service health, programmes, review queue, active work and security events.
 - Programme create/update/archive and policy/theme editing.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
-- Identity account search, role/scope context, privacy export and deactivation.
+- Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
+- Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.

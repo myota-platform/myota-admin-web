@@ -6,6 +6,11 @@ The administration web is intentionally programme-agnostic. It stores and publis
 
 Open **Geodata review** and choose a programme. The map separates `CANDIDATE`, `PROPOSED`, `APPROVED`, `RETIRED`, and `REJECTED` entities into distinct visual layers. Select an entity on the map or in the list to open its inspector; the map automatically centers and zooms to the selected geometry.
 
+The review queue is bound to the visible map bounding box. Panning or zooming
+refreshes the queue through the geodata API with the current `minLon`,
+`minLat`, `maxLon`, and `maxLat` values, so entities outside the selected map
+area are not displayed.
+
 The **Entity status** editor allows an approver to set the lifecycle status directly from the inspector. Status changes are recorded in the audit history and emit a status-change event. An `APPROVED` entity can only move to `RETIRED`; a retired entity cannot be reactivated. This protects historical QSOs from being associated with a later-invalidated entity.
 
 The inspector provides:
@@ -18,11 +23,29 @@ The inspector provides:
 
 Geometry edits never overwrite the stored source snapshot. Approval is an explicit state transition and remains subject to the authenticated approver scope enforced by the geodata service.
 
+Global administrators and GIS administrators can change an entity between
+point and polygon geometry. Point-to-polygon conversion creates a small
+editable starting area; polygon-to-point conversion uses the geometry
+centroid. Both the previous geometry and the reason are retained in audit
+history. Rejected entities also expose a permanent delete action to global or
+GIS administrators. Deletion removes the entity, related conflation records,
+and its audit record, and cannot be undone.
+
 Use **Draw candidate** to choose either a polygon area or a point location. For polygons, click at least three vertices and click the first vertex (or within the closing target) to close the shape. For point entities, click once on the map. Add the name, programme entity type, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The API validates geometry, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
 
 The service-side source manifests, refresh schedules, conflation decisions, disappearance policies, QGIS staging roles, and spatial APIs are documented in the platform repository’s [geodata production pipeline](https://github.com/myota-platform/myota-platform/blob/main/docs/geodata-production-pipeline.md).
 
 ## Content and translations
+
+## Users and roles
+
+Open **Identity** to edit account display name, email, status and optional
+password reset. Users may hold multiple roles at once. The role catalogue
+contains built-in least-privilege roles such as Identity administrator, GIS
+administrator, Geodata approver, Programme administrator, Activity
+administrator, and Auditor. Global administrators can create custom roles and
+select from the controlled administrative permission catalogue; wildcard
+access is reserved for the global administrator role.
 
 Open **Content & translations** to manage programme-owned content keys by locale. A content version moves through:
 
