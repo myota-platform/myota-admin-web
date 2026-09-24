@@ -1,5 +1,5 @@
 const API_BASE = (window.MYOTA_API_BASE || 'http://localhost:8080').replace(/\/$/, '');
-const state = { account: null, programmes: [], currentView: 'dashboard', currentProgramme: '', refreshing: false, geoEntities: [], geoSelected: null, geoMapBounds: null, geoEditingGeometry: null, contentItems: [], contentSelected: null, policyItems: [], policySelected: null };
+const state = { account: null, programmes: [], currentView: 'dashboard', currentProgramme: '', refreshing: false, geoEntities: [], geoSelected: null, geoMapBounds: null, geoEditingGeometry: null, geoDrawingMode: 'POLYGON', geoDrawingClosed: false, contentItems: [], contentSelected: null, policyItems: [], policySelected: null };
 const $ = (id) => document.getElementById(id) || document.querySelector(id);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const token = () => localStorage.getItem('myota_admin_access') || '';
@@ -300,7 +300,9 @@ function ensureGeoDrawControls() {
   importButton.insertAdjacentElement('afterend', drawButton);
   drawButton.onclick = () => {
     state.geoDrawingActive = !state.geoDrawingActive;
-    state.geoDrawing = state.geoDrawingActive ? [] : [];
+    state.geoDrawing = [];
+    state.geoDrawingMode = 'POLYGON';
+    state.geoDrawingClosed = false;
     drawButton.textContent = state.geoDrawingActive ? 'Stop drawing' : 'Draw candidate';
     renderGeoDrawPanel();
     renderGeoMap();
@@ -320,8 +322,23 @@ function renderGeoDrawPanel() {
     panel.className = 'panel geo-draw-panel';
     map.insertAdjacentElement('afterend', panel);
   }
-  panel.innerHTML = `<div class="panel-heading"><div><h2>Draw candidate proposal</h2><small class="muted">Click at least three points on the map. The first point is closed automatically.</small></div><span class="status-pill candidate">CANDIDATE</span></div><div class="form-grid"><label>Name<input id="geo-draw-name" placeholder="Place name" required></label><label>Entity type<input id="geo-draw-type" value="MUNICIPAL_PARK" required></label><label>Jurisdiction<input id="geo-draw-jurisdiction" placeholder="Optional authority or area"></label><label>Attachment URI<input id="geo-draw-attachment" placeholder="Optional evidence URL"></label><div class="form-actions wide"><button class="secondary" type="button" id="geo-draw-undo">Undo last point</button><button class="primary" type="button" id="geo-draw-submit" ${state.geoDrawing.length < 3 ? 'disabled' : ''}>Submit candidate</button></div><p class="field-help wide">${state.geoDrawing.length} point${state.geoDrawing.length === 1 ? '' : 's'} recorded. Geometry is validated and normalized to WGS84 by the geodata service.</p></div>`;
-  $('geo-draw-undo').onclick = () => { state.geoDrawing.pop(); renderGeoDrawPanel(); renderGeoMap(); };
+  const mode = state.geoDrawingMode || 'POLYGON';
+  const draft = {
+    name: $('geo-draw-name')?.value || '',
+    type: $('geo-draw-type')?.value || 'MUNICIPAL_PARK',
+    jurisdiction: $('geo-draw-jurisdiction')?.value || '',
+    attachment: $('geo-draw-attachment')?.value || ''
+  };
+  const ready = mode === 'POINT' ? state.geoDrawing.length === 1 : state.geoDrawing.length >= 3 && state.geoDrawingClosed;
+  const instruction = mode === 'POINT'
+    ? 'Click once on the map to mark the entity location.'
+    : 'Click at least three points, then click the first point or nearby to close the polygon.';
+  const progress = mode === 'POINT'
+    ? `${state.geoDrawing.length ? 'Point placed' : 'No point placed yet'}.`
+    : `${state.geoDrawing.length} point${state.geoDrawing.length === 1 ? '' : 's'} recorded${state.geoDrawingClosed ? ' · polygon closed' : ' · click the first point to close'}.`;
+  panel.innerHTML = `<div class="panel-heading"><div><h2>Draw candidate proposal</h2><small class="muted">${instruction}</small></div><span class="status-pill candidate">CANDIDATE</span></div><div class="form-grid"><label>Geometry<select id="geo-draw-mode"><option value="POLYGON" ${mode === 'POLYGON' ? 'selected' : ''}>Polygon area</option><option value="POINT" ${mode === 'POINT' ? 'selected' : ''}>Point location</option></select><small class="field-help">Use a polygon for an area or a point for a location that has no boundary.</small></label><label>Name<input id="geo-draw-name" value="${esc(draft.name)}" placeholder="Place name" required></label><label>Entity type<input id="geo-draw-type" value="${esc(draft.type)}" required></label><label>Jurisdiction<input id="geo-draw-jurisdiction" value="${esc(draft.jurisdiction)}" placeholder="Optional authority or area"></label><label>Attachment URI<input id="geo-draw-attachment" value="${esc(draft.attachment)}" placeholder="Optional evidence URL"></label><div class="form-actions wide"><button class="secondary" type="button" id="geo-draw-undo" ${state.geoDrawing.length ? '' : 'disabled'}>Undo last point</button><button class="primary" type="button" id="geo-draw-submit" ${ready ? '' : 'disabled'}>Submit candidate</button></div><p class="field-help wide">${progress} Geometry is validated and normalized to WGS84 by the geodata service.</p></div>`;
+  $('geo-draw-mode').onchange = event => { state.geoDrawingMode = event.target.value; state.geoDrawing = []; state.geoDrawingClosed = false; renderGeoDrawPanel(); renderGeoMap(); };
+  $('geo-draw-undo').onclick = () => { if (mode === 'POLYGON' && state.geoDrawingClosed) state.geoDrawingClosed = false; else state.geoDrawing.pop(); renderGeoDrawPanel(); renderGeoMap(); };
   $('geo-draw-submit').onclick = submitGeoDrawing;
 }
 function bindGeoDrawing() {
@@ -333,7 +350,10 @@ function bindGeoDrawing() {
   const height = Number(svg.viewBox.baseVal.height) || 360;
   if (state.geoDrawing?.length) {
     const points = state.geoDrawing.map(coord => geoTileProject(coord, width, height));
-    svg.insertAdjacentHTML('beforeend', `<polyline class="geo-drawing-line" points="${points.map(point => point.join(',')).join(' ')}"/><g class="geo-drawing-points">${points.map(point => `<circle cx="${point[0]}" cy="${point[1]}" r="5"/>`).join('')}</g>`);
+    const shape = state.geoDrawingMode === 'POLYGON' && state.geoDrawingClosed
+      ? `<polygon class="geo-drawing-area" points="${points.map(point => point.join(',')).join(' ')}"/>`
+      : `<polyline class="geo-drawing-line" points="${points.map(point => point.join(',')).join(' ')}"/>`;
+    svg.insertAdjacentHTML('beforeend', `${shape}<g class="geo-drawing-points">${points.map(point => `<circle cx="${point[0]}" cy="${point[1]}" r="5"/>`).join('')}</g>`);
   }
   if (map.dataset.geoDrawingBound === 'true') return;
   map.dataset.geoDrawingBound = 'true';
@@ -343,21 +363,40 @@ function bindGeoDrawing() {
     if (!activeSvg) return;
     const rect = activeSvg.getBoundingClientRect();
     const activeWidth = Number(activeSvg.viewBox.baseVal.width) || Math.max(activeSvg.clientWidth, 300);
-    const activeHeight = Number(activeSvg.viewBox.baseVal.height) || 360;
-    state.geoDrawing.push(geoTileUnproject(((event.clientX - rect.left) / rect.width) * activeWidth, ((event.clientY - rect.top) / rect.height) * activeHeight, activeWidth, activeHeight));
+    const activeHeight = Number(activeSvg.viewBox.baseVal.height) || 720;
+    const coordinate = geoTileUnproject(((event.clientX - rect.left) / rect.width) * activeWidth, ((event.clientY - rect.top) / rect.height) * activeHeight, activeWidth, activeHeight);
+    if (state.geoDrawingMode === 'POINT') {
+      state.geoDrawing = [coordinate];
+    } else {
+      const first = state.geoDrawing[0];
+      if (first && state.geoDrawing.length >= 3) {
+        const firstPoint = geoTileProject(first, activeWidth, activeHeight);
+        const clickedPoint = geoTileProject(coordinate, activeWidth, activeHeight);
+        if (Math.hypot(firstPoint[0] - clickedPoint[0], firstPoint[1] - clickedPoint[1]) <= 18) {
+          state.geoDrawingClosed = true;
+          renderGeoDrawPanel();
+          renderGeoMap();
+          return;
+        }
+      }
+      if (!state.geoDrawingClosed) state.geoDrawing.push(coordinate);
+    }
     renderGeoDrawPanel();
     renderGeoMap();
   }, {capture: true});
 }
 async function submitGeoDrawing() {
-  if (!state.geoDrawing || state.geoDrawing.length < 3) return;
-  const ring = [...state.geoDrawing, state.geoDrawing[0]];
+  const mode = state.geoDrawingMode || 'POLYGON';
+  if (!state.geoDrawing || (mode === 'POINT' ? state.geoDrawing.length !== 1 : state.geoDrawing.length < 3 || !state.geoDrawingClosed)) return;
+  const geometry = mode === 'POINT'
+    ? {type: 'Point', coordinates: state.geoDrawing[0]}
+    : {type: 'Polygon', coordinates: [[...state.geoDrawing, state.geoDrawing[0]]]};
   const attachmentUri = $('geo-draw-attachment').value.trim();
   const attachments = attachmentUri ? [{name: attachmentUri.split('/').pop() || 'evidence', mediaType: 'application/octet-stream', uri: attachmentUri}] : [];
   try {
-    await api('/v1/geodata/proposals/draw', {method:'POST', body:JSON.stringify({programmeSlug:$('geo-programme').value || state.currentProgramme || state.programmes[0]?.slug, source:{name:'Manual administration proposal',license:'programme-supplied'}, feature:{properties:{name:$('geo-draw-name').value.trim(),entityType:$('geo-draw-type').value.trim() || 'MUNICIPAL_PARK',jurisdiction:$('geo-draw-jurisdiction').value.trim() || undefined},geometry:{type:'Polygon',coordinates:[ring]}}, attachments}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    await api('/v1/geodata/proposals/draw', {method:'POST', body:JSON.stringify({programmeSlug:$('geo-programme').value || state.currentProgramme || state.programmes[0]?.slug, source:{name:'Manual administration proposal',license:'programme-supplied'}, feature:{properties:{name:$('geo-draw-name').value.trim(),entityType:$('geo-draw-type').value.trim() || 'MUNICIPAL_PARK',jurisdiction:$('geo-draw-jurisdiction').value.trim() || undefined},geometry}, attachments}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     notify('Candidate proposal submitted','success');
-    state.geoDrawingActive = false; state.geoDrawing = [];
+    state.geoDrawingActive = false; state.geoDrawing = []; state.geoDrawingClosed = false;
     await loadGeoReview();
     ensureGeoDrawControls();
   } catch (error) { notify(error.message,'error'); }
