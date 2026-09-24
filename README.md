@@ -14,6 +14,7 @@ and account controls do not leak into the participant-facing application.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
 - Identity account search, role/scope context, privacy export and deactivation.
 - Activation/QSO operational list with protected activity-read scope.
+- Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
@@ -27,3 +28,8 @@ format, are documented in [`docs/programme-configuration.md`](docs/programme-con
 Serve `web/` with any static server and set the API base to the gateway,
 normally `http://localhost:8080`. The deployment Compose manifest starts this
 UI on `http://localhost:8090`.
+
+Award background and signature binaries are addressed by object keys in the
+admin UI. Local Compose provides MinIO for those assets; certificate rendering
+is represented by an immutable issuance render specification until the PDF
+renderer worker is enabled.
