@@ -270,6 +270,7 @@ function bindGeoStatusControl() {
 }
 const selectGeoEntityWithStatus = selectGeoEntity;
 selectGeoEntity = async function(id) {
+  geoLastCenteredId = null;
   await selectGeoEntityWithStatus(id);
   bindGeoStatusControl();
 };
