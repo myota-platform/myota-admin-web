@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MyOTA platform administration">
+  <title>MyOTA Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <section id="login-view" class="login-shell">
+    <div class="login-card">
+      <p class="eyebrow">MYOTA PLATFORM</p>
+      <h1>Administration</h1>
+      <p class="muted">Manage programmes, identity, geodata reviews and operational activity.</p>
+      <form id="login-form">
+        <label>Email<input id="login-email" type="email" autocomplete="username" required></label>
+        <label>Password<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <p id="login-error" class="error" hidden></p>
+      <p class="hint">Administrator access is controlled by the identity service.</p>
+    </div>
+  </section>
+
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
+      <a class="brand" href="#dashboard"><span class="brand-mark">M</span><span><strong>MyOTA</strong><small>Administration</small></span></a>
+      <div class="top-actions"><span id="api-status" class="status-dot pending">Checking API…</span><span id="account-label"></span><button id="logout" class="quiet">Sign out</button></div>
+    </header>
+    <div class="app-layout">
+      <aside id="sidebar" class="sidebar" aria-label="Administration navigation">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span> Dashboard</button>
+        <button class="nav-item" data-view="programmes"><span>◈</span> Programmes</button>
+        <button class="nav-item" data-view="geodata"><span>⌖</span> Geodata review</button>
+        <button class="nav-item" data-view="identity"><span>◎</span> Identity</button>
+        <button class="nav-item" data-view="activity"><span>◷</span> Activity</button>
+        <div class="sidebar-footer"><span class="small-label">Programme context</span><select id="programme-context"><option value="">All programmes</option></select></div>
+      </aside>
+      <main class="content">
+        <div class="breadcrumbs"><span>MyOTA</span><span>/</span><strong id="breadcrumb">Dashboard</strong></div>
+        <section id="dashboard-view" class="view"></section>
+        <section id="programmes-view" class="view" hidden></section>
+        <section id="geodata-view" class="view" hidden></section>
+        <section id="identity-view" class="view" hidden></section>
+        <section id="activity-view" class="view" hidden></section>
+      </main>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
