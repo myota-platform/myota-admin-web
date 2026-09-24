@@ -30,6 +30,7 @@ normally `http://localhost:8080`. The deployment Compose manifest starts this
 UI on `http://localhost:8090`.
 
 Award background and signature binaries are addressed by object keys in the
-admin UI. Local Compose provides MinIO for those assets; certificate rendering
-is represented by an immutable issuance render specification until the PDF
-renderer worker is enabled.
+admin UI and can be uploaded through presigned MinIO/S3 URLs. Local Compose
+provides MinIO for those assets; certificate rendering produces a PDF when the
+registered background and signature are available, otherwise the immutable
+issuance render specification can be retried later.
