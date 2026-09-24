@@ -16,7 +16,8 @@ The **Entity status** editor allows an approver to set the lifecycle status dire
 The inspector provides:
 
 - the original imported source feature/provenance beside the current platform geometry;
-- draggable point or polygon vertices for a review-time geometry correction;
+- a read-only geometry view until the explicit **Edit geometry** action is selected;
+- Leaflet-Geoman draggable point or polygon vertices for a review-time geometry correction;
 - a required-by-practice geometry note, which is retained in geometry history;
 - proposal and approval/rejection actions with a reviewer note;
 - combined review and geometry audit history.
@@ -31,7 +32,7 @@ history. Rejected entities also expose a permanent delete action to global or
 GIS administrators. Deletion removes the entity, related conflation records,
 and its audit record, and cannot be undone.
 
-Use **Draw candidate** to choose either a polygon area or a point location. For polygons, click at least three vertices and click the first vertex (or within the closing target) to close the shape. For point entities, click once on the map. Add the name, programme entity type, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The API validates geometry, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
+Use **New candidate** to choose either a polygon area or a point location. Leaflet-Geoman closes polygons when the first vertex is selected again (and also offers its normal finish control). For point entities, click once on the map. Add the name, programme entity type, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The API validates geometry, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
 
 The service-side source manifests, refresh schedules, conflation decisions, disappearance policies, QGIS staging roles, and spatial APIs are documented in the platform repository’s [geodata production pipeline](https://github.com/myota-platform/myota-platform/blob/main/docs/geodata-production-pipeline.md).
 
@@ -67,4 +68,4 @@ The local Compose deployment serves this administration web on port `8090`. Use 
 
 The local sample geodata contains three OSM-referenced parks around Sevilla: Parque de María Luisa, Parque del Alamillo, and Parque de los Príncipes. Two are seeded as approved references and Los Príncipes is seeded as a candidate so the review lifecycle is immediately visible. Each record keeps its OSM way reference, source URL, ODbL metadata, and source feature snapshot.
 
-The map uses the standard HTTPS OpenStreetMap tile endpoint only for the tiles currently visible in the interactive viewport. It supports drag panning, mouse-wheel zoom, and explicit zoom controls, and displays `© OpenStreetMap contributors` attribution. Production deployments should review traffic volume and the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/) before using the public tile service at scale; a managed or self-hosted tile provider is the planned production option for heavier usage.
+The map uses the standard HTTPS OpenStreetMap tile endpoint only for the tiles currently visible in the interactive viewport. It supports drag panning, mouse-wheel zoom, and explicit zoom controls, and displays `© OpenStreetMap contributors` plus a “Report a map issue” link. The page and nginx response use `strict-origin-when-cross-origin`, so the browser sends a valid origin `Referer`; browser JavaScript cannot set a `User-Agent`, so the browser supplies its normal identifiable one. Requests are not prefetched or made available offline, and normal browser caching is preserved. Production deployments should review traffic volume and the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/) before using the public tile service at scale; a managed or self-hosted tile provider is the planned production option for heavier usage.

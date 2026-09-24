@@ -14,12 +14,28 @@ and account controls do not leak into the participant-facing application.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
+- Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/polygon drawing, and source/audit-aware inspection.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
+
+## Map tiles and editing
+
+The review map uses vendored, pinned Leaflet and Leaflet-Geoman assets. The
+default raster tile source is the configurable
+`https://tile.openstreetmap.org/{z}/{x}/{y}.png`. The map displays the required
+OpenStreetMap attribution and a “Report a map issue” link, requests tiles only
+for the visible viewport, does not prefetch or provide offline tiles, and lets
+the browser honor tile caching headers. The nginx response and HTML referrer
+policy are `strict-origin-when-cross-origin`, which sends a valid origin
+referrer to the tile server. Browsers supply their own User-Agent header;
+client-side JavaScript cannot set or spoof it. If a deployment proxies tiles,
+that proxy must provide an identifiable User-Agent and follow the provider’s
+terms. See the [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
+before changing the tile provider or request behavior.
 
 Programme configuration details, including the current Entity Types JSON
 format, are documented in [`docs/programme-configuration.md`](docs/programme-configuration.md).
