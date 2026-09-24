@@ -33,3 +33,9 @@ Policy versions move through the same draft/review/publish lifecycle. Publishing
 ## Local verification
 
 The local Compose deployment serves this administration web on port `8090`. Use the bootstrap administrator configured in the local environment, then exercise each workflow against the sample programme data. The MPOTA records are synthetic sample data only and are not a source of platform rules.
+
+## Sevilla sample map data
+
+The local sample geodata contains three OSM-referenced parks around Sevilla: Parque de María Luisa, Parque del Alamillo, and Parque de los Príncipes. Two are seeded as approved references and Los Príncipes is seeded as a candidate so the review lifecycle is immediately visible. Each record keeps its OSM way reference, source URL, ODbL metadata, and source feature snapshot.
+
+The map uses the standard HTTPS OpenStreetMap tile endpoint only for the tiles currently visible in the interactive viewport. It supports drag panning, mouse-wheel zoom, and explicit zoom controls, and displays `© OpenStreetMap contributors` attribution. Production deployments should review traffic volume and the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/) before using the public tile service at scale; a managed or self-hosted tile provider is the planned production option for heavier usage.
