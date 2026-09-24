@@ -4,7 +4,9 @@ The administration web is intentionally programme-agnostic. It stores and publis
 
 ## Geodata review
 
-Open **Geodata review** and choose a programme. The map separates `CANDIDATE`, `PROPOSED`, `APPROVED`, and `REJECTED` entities into distinct visual layers. Select an entity on the map or in the list to open its inspector.
+Open **Geodata review** and choose a programme. The map separates `CANDIDATE`, `PROPOSED`, `APPROVED`, `RETIRED`, and `REJECTED` entities into distinct visual layers. Select an entity on the map or in the list to open its inspector; the map automatically centers and zooms to the selected geometry.
+
+The **Entity status** editor allows an approver to set the lifecycle status directly from the inspector. Status changes are recorded in the audit history and emit a status-change event. An `APPROVED` entity can only move to `RETIRED`; a retired entity cannot be reactivated. This protects historical QSOs from being associated with a later-invalidated entity.
 
 The inspector provides:
 

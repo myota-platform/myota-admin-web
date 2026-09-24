@@ -220,3 +220,70 @@ function geoTileCoordinates(entity) { const geometry = entity.geometry; if (!geo
 function geoTileShapeMarkup(entity, width, height) { const editing = state.geoSelected?.id === entity.id && state.geoEditingGeometry ? {...entity, geometry:state.geoEditingGeometry} : entity; const points = geoTileCoordinates(editing).map(coord => geoTileProject(coord, width, height)); if (!points.length) return ''; const selected = state.geoSelected?.id === entity.id; const shape = entity.geometry?.type === 'Point' ? `<circle data-geo-shape="${esc(entity.id)}" cx="${points[0][0]}" cy="${points[0][1]}" r="${selected ? 10 : 8}" class="geo-shape-point"/>` : `<polygon data-geo-shape="${esc(entity.id)}" points="${points.map(point=>point.join(',')).join(' ')}" class="geo-shape-polygon"/>`; const handles = selected && state.geoEditingGeometry ? points.map((point,index)=>`<circle data-vertex="${index}" cx="${point[0]}" cy="${point[1]}" r="6" class="geo-vertex"/>`).join('') : ''; return `<g data-geo-id="${esc(entity.id)}" class="geo-layer ${geoStatusClass(entity.status)} ${selected?'selected':''}">${shape}${handles}<text x="${points[0][0]+10}" y="${points[0][1]-10}" class="geo-label">${esc(entity.name)}</text></g>`; }
 function geoTileRenderTiles(surface, width, height) { const center = geoTileWorld(geoTileMapState.lon, geoTileMapState.lat, geoTileMapState.zoom); const firstX = Math.floor((center.x - width / 2) / 256); const lastX = Math.floor((center.x + width / 2) / 256); const firstY = Math.max(0, Math.floor((center.y - height / 2) / 256)); const lastY = Math.min((2 ** geoTileMapState.zoom) - 1, Math.floor((center.y + height / 2) / 256)); const count = 2 ** geoTileMapState.zoom; for (let tileX=firstX;tileX<=lastX;tileX+=1) for (let tileY=firstY;tileY<=lastY;tileY+=1) { const image=document.createElement('img'); image.alt=''; image.draggable=false; image.className='geo-osm-tile'; image.src=`https://tile.openstreetmap.org/${geoTileMapState.zoom}/${((tileX%count)+count)%count}/${tileY}.png`; image.style.left=`${tileX*256-center.x+width/2}px`; image.style.top=`${tileY*256-center.y+height/2}px`; surface.appendChild(image); } }
 function renderGeoMap() { const map=$('geo-map'); if(!map)return; const width=Math.max(map.clientWidth||600,300), height=360; const visible=state.geoEntities.filter(entity=>!$(`layer-${geoStatusClass(entity.status)}`)||$(`layer-${geoStatusClass(entity.status)}`).checked); map.innerHTML=`<div id="geo-tile-surface" class="geo-tile-surface"></div><svg id="geo-svg" class="geo-map-overlay" viewBox="0 0 ${width} ${height}" role="img" aria-label="OpenStreetMap geodata review map"></svg><div class="geo-map-controls"><button type="button" data-geo-zoom="in" aria-label="Zoom in">+</button><button type="button" data-geo-zoom="out" aria-label="Zoom out">−</button><button type="button" data-geo-reset="true" aria-label="Reset map view">⌂</button></div><a class="geo-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>`; const surface=$('geo-tile-surface'),svg=$('geo-svg'); geoTileRenderTiles(surface,width,height); svg.innerHTML=visible.map(entity=>geoTileShapeMarkup(entity,width,height)).join('')||'<text x="24" y="40" class="geo-empty">No entities in these layers</text>'; document.querySelectorAll('[data-geo-id]').forEach(node=>node.onclick=event=>{if(!event.target.dataset.vertex)selectGeoEntity(node.dataset.geoId);}); document.querySelectorAll('[data-geo-zoom]').forEach(button=>button.onclick=()=>{geoTileMapState.zoom=Math.max(10,Math.min(18,geoTileMapState.zoom+(button.dataset.geoZoom==='in'?1:-1)));renderGeoMap();}); $('[data-geo-reset]').onclick=()=>{geoTileMapState={lat:37.395,lon:-5.995,zoom:12};renderGeoMap();}; let drag=null; svg.addEventListener('pointerdown',event=>{const handle=event.target.closest('[data-vertex]');drag=handle?{kind:'vertex',index:Number(handle.dataset.vertex),moved:false}:{kind:'pan',x:event.clientX,y:event.clientY,moved:false};svg.setPointerCapture(event.pointerId);}); svg.addEventListener('pointermove',event=>{if(!drag)return;const rect=svg.getBoundingClientRect(),x=((event.clientX-rect.left)/rect.width)*width,y=((event.clientY-rect.top)/rect.height)*height;drag.moved=true;if(drag.kind==='pan'){surface.style.transform=`translate(${event.clientX-drag.x}px,${event.clientY-drag.y}px)`;svg.style.transform=`translate(${event.clientX-drag.x}px,${event.clientY-drag.y}px)`;}else{const refs=geoVertexRefs(state.geoEditingGeometry);refs[drag.index]?.set(geoTileUnproject(x,y,width,height));const shape=svg.querySelector('[data-geo-shape]'),points=geoTileCoordinates({geometry:state.geoEditingGeometry}).map(coord=>geoTileProject(coord,width,height));if(shape){if(state.geoEditingGeometry.type==='Point'){shape.setAttribute('cx',points[0][0]);shape.setAttribute('cy',points[0][1]);}else shape.setAttribute('points',points.map(point=>point.join(',')).join(' '));}svg.querySelectorAll('[data-vertex]').forEach((vertex,index)=>{vertex.setAttribute('cx',points[index][0]);vertex.setAttribute('cy',points[index][1]);});}}); svg.addEventListener('pointerup',event=>{if(!drag)return;if(drag.kind==='pan'){const dx=event.clientX-drag.x,dy=event.clientY-drag.y;[geoTileMapState.lon,geoTileMapState.lat]=geoTileUnproject(width/2-dx,height/2-dy,width,height);renderGeoMap();}else{renderGeoMap();}drag=null;}); svg.addEventListener('wheel',event=>{event.preventDefault();geoTileMapState.zoom=Math.max(10,Math.min(18,geoTileMapState.zoom+(event.deltaY<0?1:-1)));renderGeoMap();},{passive:false}); }
+
+let geoLastCenteredId = null;
+function centerGeoMapOnEntity(entity) {
+  const coordinates = geoTileCoordinates(entity).filter(coord => Array.isArray(coord) && coord.length >= 2);
+  if (!coordinates.length) return;
+  const longitudes = coordinates.map(coord => Number(coord[0]));
+  const latitudes = coordinates.map(coord => Number(coord[1]));
+  geoTileMapState.lon = (Math.min(...longitudes) + Math.max(...longitudes)) / 2;
+  geoTileMapState.lat = (Math.min(...latitudes) + Math.max(...latitudes)) / 2;
+  geoTileMapState.zoom = Math.max(14, geoTileMapState.zoom);
+}
+const renderGeoMapWithTiles = renderGeoMap;
+renderGeoMap = function() {
+  const selectedId = state.geoSelected?.id || null;
+  if (selectedId !== geoLastCenteredId) {
+    geoLastCenteredId = selectedId;
+    if (state.geoSelected) centerGeoMapOnEntity(state.geoSelected);
+  }
+  return renderGeoMapWithTiles();
+};
+
+function bindGeoStatusControl() {
+  const inspector = $('geo-inspector');
+  const entity = state.geoSelected;
+  if (!inspector || !entity || $('geo-status-editor')) return;
+  const statuses = entity.status === 'APPROVED'
+    ? ['RETIRED']
+    : entity.status === 'RETIRED'
+      ? ['RETIRED']
+      : ['APPROVED', 'CANDIDATE', 'PROPOSED', 'RETIRED', 'REJECTED'];
+  const terminal = entity.status === 'RETIRED';
+  const section = document.createElement('section');
+  section.id = 'geo-status-editor';
+  section.className = 'geo-status-editor';
+  section.innerHTML = `<h3>Entity status</h3><p class="field-help">Change the lifecycle status from this review page. Approved entities can only move to Retired so historical QSOs remain valid.</p><div class="geo-status-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><label>Change note<textarea id="geo-status-note" placeholder="Record the evidence or reason for this status change"></textarea></label><button class="secondary" id="geo-save-status" type="button" ${terminal || statuses.length === 1 && statuses[0] === entity.status ? 'disabled' : ''}>Save status</button></div><p class="field-help">${terminal ? 'Retired entities cannot be reactivated.' : 'Status changes are recorded in the entity audit history.'}</p>`;
+  const geometrySection = inspector.querySelector('.inspector-grid');
+  if (geometrySection) geometrySection.insertAdjacentElement('afterend', section);
+  else inspector.appendChild(section);
+  $('geo-save-status').onclick = async () => {
+    const status = $('geo-status-select').value;
+    if (status === entity.status) return;
+    try {
+      await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/status`, {method:'POST', body:JSON.stringify({status, reviewerId:state.account.id, note:$('geo-status-note').value}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+      notify(`Entity ${status.toLowerCase()}`,'success');
+      await loadGeoReview();
+    } catch (error) { notify(error.message,'error'); }
+  };
+}
+const selectGeoEntityWithStatus = selectGeoEntity;
+selectGeoEntity = async function(id) {
+  await selectGeoEntityWithStatus(id);
+  bindGeoStatusControl();
+};
+
+const renderGeoReviewWithRetired = renderGeoReview;
+renderGeoReview = async function() {
+  await renderGeoReviewWithRetired();
+  const rejectedLayer = document.getElementById('layer-rejected');
+  if (rejectedLayer && !document.getElementById('layer-retired')) {
+    const label = document.createElement('label');
+    label.className = 'layer-toggle retired';
+    label.innerHTML = '<input id="layer-retired" type="checkbox" checked> Retired';
+    rejectedLayer.closest('.layer-toggle')?.insertAdjacentElement('afterend', label);
+    $('layer-retired').onchange = renderGeoMap;
+    renderGeoMap();
+  }
+};
