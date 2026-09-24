@@ -18,6 +18,10 @@ The inspector provides:
 
 Geometry edits never overwrite the stored source snapshot. Approval is an explicit state transition and remains subject to the authenticated approver scope enforced by the geodata service.
 
+Use **Draw candidate** to click a new polygon directly on the map. Add its name, programme entity type, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The API validates ring closure, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
+
+The service-side source manifests, refresh schedules, conflation decisions, disappearance policies, QGIS staging roles, and spatial APIs are documented in the platform repository’s [geodata production pipeline](https://github.com/myota-platform/myota-platform/blob/main/docs/geodata-production-pipeline.md).
+
 ## Content and translations
 
 Open **Content & translations** to manage programme-owned content keys by locale. A content version moves through:

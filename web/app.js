@@ -288,3 +288,90 @@ renderGeoReview = async function() {
     renderGeoMap();
   }
 };
+
+function ensureGeoDrawControls() {
+  const importButton = $('geo-import-toggle');
+  if (!importButton || $('geo-draw-toggle')) return;
+  const drawButton = document.createElement('button');
+  drawButton.id = 'geo-draw-toggle';
+  drawButton.className = 'secondary';
+  drawButton.type = 'button';
+  drawButton.textContent = 'Draw candidate';
+  importButton.insertAdjacentElement('afterend', drawButton);
+  drawButton.onclick = () => {
+    state.geoDrawingActive = !state.geoDrawingActive;
+    state.geoDrawing = state.geoDrawingActive ? [] : [];
+    drawButton.textContent = state.geoDrawingActive ? 'Stop drawing' : 'Draw candidate';
+    renderGeoDrawPanel();
+    renderGeoMap();
+  };
+}
+function renderGeoDrawPanel() {
+  const map = $('geo-map');
+  if (!map) return;
+  let panel = $('geo-draw-panel');
+  if (!state.geoDrawingActive) {
+    panel?.remove();
+    return;
+  }
+  if (!panel) {
+    panel = document.createElement('article');
+    panel.id = 'geo-draw-panel';
+    panel.className = 'panel geo-draw-panel';
+    map.insertAdjacentElement('afterend', panel);
+  }
+  panel.innerHTML = `<div class="panel-heading"><div><h2>Draw candidate proposal</h2><small class="muted">Click at least three points on the map. The first point is closed automatically.</small></div><span class="status-pill candidate">CANDIDATE</span></div><div class="form-grid"><label>Name<input id="geo-draw-name" placeholder="Place name" required></label><label>Entity type<input id="geo-draw-type" value="MUNICIPAL_PARK" required></label><label>Jurisdiction<input id="geo-draw-jurisdiction" placeholder="Optional authority or area"></label><label>Attachment URI<input id="geo-draw-attachment" placeholder="Optional evidence URL"></label><div class="form-actions wide"><button class="secondary" type="button" id="geo-draw-undo">Undo last point</button><button class="primary" type="button" id="geo-draw-submit" ${state.geoDrawing.length < 3 ? 'disabled' : ''}>Submit candidate</button></div><p class="field-help wide">${state.geoDrawing.length} point${state.geoDrawing.length === 1 ? '' : 's'} recorded. Geometry is validated and normalized to WGS84 by the geodata service.</p></div>`;
+  $('geo-draw-undo').onclick = () => { state.geoDrawing.pop(); renderGeoDrawPanel(); renderGeoMap(); };
+  $('geo-draw-submit').onclick = submitGeoDrawing;
+}
+function bindGeoDrawing() {
+  if (!state.geoDrawingActive) return;
+  const map = $('geo-map');
+  const svg = $('geo-svg');
+  if (!svg) return;
+  const width = Number(svg.viewBox.baseVal.width) || Math.max(svg.clientWidth, 300);
+  const height = Number(svg.viewBox.baseVal.height) || 360;
+  if (state.geoDrawing?.length) {
+    const points = state.geoDrawing.map(coord => geoTileProject(coord, width, height));
+    svg.insertAdjacentHTML('beforeend', `<polyline class="geo-drawing-line" points="${points.map(point => point.join(',')).join(' ')}"/><g class="geo-drawing-points">${points.map(point => `<circle cx="${point[0]}" cy="${point[1]}" r="5"/>`).join('')}</g>`);
+  }
+  if (map.dataset.geoDrawingBound === 'true') return;
+  map.dataset.geoDrawingBound = 'true';
+  map.addEventListener('click', event => {
+    if (!state.geoDrawingActive || event.target.closest('[data-geo-id]') || event.target.closest('[data-vertex]') || event.target.closest('.geo-map-controls') || event.target.closest('.geo-attribution')) return;
+    const activeSvg = $('geo-svg');
+    if (!activeSvg) return;
+    const rect = activeSvg.getBoundingClientRect();
+    const activeWidth = Number(activeSvg.viewBox.baseVal.width) || Math.max(activeSvg.clientWidth, 300);
+    const activeHeight = Number(activeSvg.viewBox.baseVal.height) || 360;
+    state.geoDrawing.push(geoTileUnproject(((event.clientX - rect.left) / rect.width) * activeWidth, ((event.clientY - rect.top) / rect.height) * activeHeight, activeWidth, activeHeight));
+    renderGeoDrawPanel();
+    renderGeoMap();
+  }, {capture: true});
+}
+async function submitGeoDrawing() {
+  if (!state.geoDrawing || state.geoDrawing.length < 3) return;
+  const ring = [...state.geoDrawing, state.geoDrawing[0]];
+  const attachmentUri = $('geo-draw-attachment').value.trim();
+  const attachments = attachmentUri ? [{name: attachmentUri.split('/').pop() || 'evidence', mediaType: 'application/octet-stream', uri: attachmentUri}] : [];
+  try {
+    await api('/v1/geodata/proposals/draw', {method:'POST', body:JSON.stringify({programmeSlug:$('geo-programme').value || state.currentProgramme || state.programmes[0]?.slug, source:{name:'Manual administration proposal',license:'programme-supplied'}, feature:{properties:{name:$('geo-draw-name').value.trim(),entityType:$('geo-draw-type').value.trim() || 'MUNICIPAL_PARK',jurisdiction:$('geo-draw-jurisdiction').value.trim() || undefined},geometry:{type:'Polygon',coordinates:[ring]}}, attachments}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    notify('Candidate proposal submitted','success');
+    state.geoDrawingActive = false; state.geoDrawing = [];
+    await loadGeoReview();
+    ensureGeoDrawControls();
+  } catch (error) { notify(error.message,'error'); }
+}
+const renderGeoMapWithDrawing = renderGeoMap;
+renderGeoMap = function() {
+  const result = renderGeoMapWithDrawing();
+  renderGeoDrawPanel();
+  bindGeoDrawing();
+  return result;
+};
+const renderGeoReviewWithDrawing = renderGeoReview;
+renderGeoReview = async function() {
+  await renderGeoReviewWithDrawing();
+  ensureGeoDrawControls();
+  renderGeoDrawPanel();
+};
