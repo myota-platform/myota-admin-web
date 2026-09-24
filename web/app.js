@@ -983,7 +983,9 @@ function startGeoDrawing() {
   geoLeafletDrawingLayer = null;
   state.geoDrawingActiveNow = true;
   geoLeafletMap.pm?.disableDraw();
-  geoLeafletMap.pm?.enableDraw(state.geoDrawingMode === 'POINT' ? 'Marker' : 'Polygon', {snappable:true, allowSelfIntersection:false});
+  // Use a compact circle for point proposals instead of Leaflet's large
+  // default pin icon; the submitted GeoJSON remains a Point geometry.
+  geoLeafletMap.pm?.enableDraw(state.geoDrawingMode === 'POINT' ? 'CircleMarker' : 'Polygon', {snappable:true, allowSelfIntersection:false, markerStyle:{radius:8, color:'#123d3a', fillColor:'#10b981', fillOpacity:0.9}});
   renderGeoDrawPanel();
 }
 
