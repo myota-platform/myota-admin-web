@@ -27,9 +27,10 @@ Geometry edits never overwrite the stored source snapshot. Approval is an explic
 ## Entity map
 
 The **Entity map** page is a read-only Leaflet view of the complete stored
-geodata catalogue. It loads the paged entity API, renders all entities with
-geometry using lifecycle-specific colours, and fits the initial view to the
-available data. Selecting a shape opens a popup containing the entity name,
+geodata catalogue. It loads the paged entity API, renders all entity locations
+through Leaflet.markercluster, keeps line and polygon geometries visible as
+selectable overlays, and fits the initial view to the available data.
+Selecting a shape or clustered marker opens a popup containing the entity name,
 stored location metadata, all shared category codes/labels, and the programmes
 that explicitly contain the entity or are assigned one of its categories. The
 page does not enable geometry editing; use Geodata review for audited changes.

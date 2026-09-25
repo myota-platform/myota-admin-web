@@ -15,7 +15,7 @@ and account controls do not leak into the participant-facing application.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
 - Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/way/polygon drawing, and source/audit-aware inspection.
-- Read-only Entity map page showing all stored geometries with lifecycle styling and popups for name, location metadata, shared categories, and programme memberships.
+- Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.

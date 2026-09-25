@@ -3,6 +3,7 @@
 // entity here opens context only and never starts geometry editing.
 let entityMapLeafletMap = null;
 let entityMapLayerGroup = null;
+let entityMapClusterGroup = null;
 let entityMapLoadSequence = 0;
 let entityMapHasFitted = false;
 
@@ -74,28 +75,69 @@ function entityMapFeature(entity) {
   return {type:'Feature', id:entity.id, properties:{name:entity.name, status:entity.status}, geometry:entity.geometry};
 }
 
-function entityMapCreateLayer(entity) {
+function entityMapCreateShape(entity) {
   const style = entityMapStatusStyle(entity.status);
   const geometryType = entity.geometry?.type;
   const pathStyle = ['LineString', 'MultiLineString'].includes(geometryType) ? {...style, dashArray:'8 6', lineCap:'round', lineJoin:'round'} : style;
   const group = L.geoJSON(entityMapFeature(entity), {
-    style:pathStyle,
-    pointToLayer:(_feature, latlng) => L.circleMarker(latlng, style)
+    style:pathStyle
   });
   group.bindPopup(entityMapPopup(entity), {maxWidth:340, minWidth:250});
-  group.bindTooltip(`${entity.name || 'Unnamed entity'} · ${entity.status || 'UNKNOWN'}`, {direction:'top', sticky:true});
   return group;
+}
+
+function entityMapMarkerIcon(entity) {
+  const status = String(entity.status || 'CANDIDATE').toLowerCase();
+  return L.divIcon({className:`entity-map-marker entity-map-marker-${status}`, html:'<span aria-hidden="true"></span>', iconSize:[18,18], iconAnchor:[9,9]});
+}
+
+function entityMapCreateMarker(entity, shape) {
+  let position = null;
+  if (entity.geometry?.type === 'Point' && Array.isArray(entity.geometry.coordinates)) {
+    position = [Number(entity.geometry.coordinates[1]), Number(entity.geometry.coordinates[0])];
+  } else if (shape?.getBounds?.().isValid()) {
+    const center = shape.getBounds().getCenter();
+    position = [center.lat, center.lng];
+  }
+  if (!position || position.some(value => !Number.isFinite(value))) return null;
+  const marker = L.marker(position, {icon:entityMapMarkerIcon(entity), keyboard:true, title:entity.name || 'Unnamed entity'});
+  marker.bindPopup(entityMapPopup(entity), {maxWidth:340, minWidth:250});
+  marker.bindTooltip(`${entity.name || 'Unnamed entity'} · ${entity.status || 'UNKNOWN'}`, {direction:'top', sticky:true});
+  return marker;
+}
+
+function entityMapClusterIcon(cluster) {
+  return L.divIcon({html:`<span>${cluster.getChildCount()}</span>`, className:'entity-map-cluster', iconSize:[42,42]});
 }
 
 function entityMapRenderLayers(entities) {
   if (!entityMapLeafletMap) return;
   entityMapLayerGroup?.remove();
+  entityMapClusterGroup?.remove();
   entityMapLayerGroup = L.featureGroup().addTo(entityMapLeafletMap);
-  entities.filter(entity => entity.geometry).forEach(entity => entityMapCreateLayer(entity).addTo(entityMapLayerGroup));
+  entityMapClusterGroup = L.markerClusterGroup({
+    showCoverageOnHover:false,
+    spiderfyOnMaxZoom:true,
+    chunkedLoading:true,
+    maxClusterRadius:52,
+    iconCreateFunction:entityMapClusterIcon
+  }).addTo(entityMapLeafletMap);
+  const bounds = L.latLngBounds([]);
+  entities.filter(entity => entity.geometry).forEach(entity => {
+    const shape = entity.geometry.type === 'Point' ? null : entityMapCreateShape(entity);
+    if (shape) {
+      shape.addTo(entityMapLayerGroup);
+      bounds.extend(shape.getBounds());
+    }
+    const marker = entityMapCreateMarker(entity, shape);
+    if (marker) {
+      entityMapClusterGroup.addLayer(marker);
+      bounds.extend(marker.getLatLng());
+    }
+  });
   const count = $('entity-map-count');
   if (count) count.textContent = `${entities.length} ${entities.length === 1 ? 'entity' : 'entities'}`;
   if (!entityMapHasFitted && entities.length) {
-    const bounds = entityMapLayerGroup.getBounds();
     if (bounds.isValid()) entityMapLeafletMap.fitBounds(bounds, {padding:[36,36], maxZoom:15});
     entityMapHasFitted = true;
   }
@@ -105,8 +147,8 @@ function ensureEntityMap() {
   const container = $('entity-map-canvas');
   if (!container) return null;
   if (entityMapLeafletMap) return entityMapLeafletMap;
-  if (!window.L || !L.map || !L.GeoJSON) {
-    container.innerHTML = '<div class="error-card">The entity map could not be loaded. Refresh the page or contact an administrator.</div>';
+  if (!window.L || !L.map || !L.GeoJSON || !L.markerClusterGroup) {
+    container.innerHTML = '<div class="error-card">The entity map or its clustering extension could not be loaded. Refresh the page or contact an administrator.</div>';
     return null;
   }
   entityMapLeafletMap = L.map(container, {center:ENTITY_MAP_DEFAULT_CENTER, zoom:ENTITY_MAP_DEFAULT_ZOOM, minZoom:2, maxZoom:19, worldCopyJump:false, preferCanvas:true, zoomControl:false, attributionControl:true});
@@ -143,6 +185,7 @@ async function renderEntityMap() {
   entityMapLeafletMap?.remove();
   entityMapLeafletMap = null;
   entityMapLayerGroup = null;
+  entityMapClusterGroup = null;
   entityMapHasFitted = false;
   const view = $('entity-map-view');
   view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">GEODATA CATALOGUE</p><h1>Entity map</h1><p class="muted">Browse all stored entities. Select a shape to inspect its metadata, categories, and programme memberships.</p></div><button class="secondary" id="entity-map-refresh" type="button">Refresh map</button></div><article class="panel entity-map-panel"><div class="panel-heading"><div><h2>All entities</h2><small class="muted">Colours show lifecycle status. The map is read-only.</small></div><span id="entity-map-count" class="muted">Loading…</span></div><div id="entity-map-canvas" class="entity-map-canvas"></div><p id="entity-map-empty" class="muted empty" hidden>No entities with geometry were found.</p></article>`;
