@@ -161,10 +161,15 @@ function geoAllowedStatuses(entity) {
 }
 
 function geoEntityTypeCatalogue(entity) {
-  const programme = state.programmes.find(item => item.slug === entity?.programmeSlug);
-  const configured = programme?.entityTypes || [];
+  const configured = state.entityTypeCatalogue || [];
   const current = entity?.entityType;
   return configured.filter(item => item.active !== false || item.code === current);
+}
+
+async function loadGeoEntityTypeCatalogue() {
+  const data = await api('/v1/entity-types');
+  state.entityTypeCatalogue = data.items || [];
+  return state.entityTypeCatalogue;
 }
 
 const GEO_LOCATION_FIELDS = [
@@ -307,10 +312,11 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   const editableEntry = geoLeafletEntityLayers.get(entity.id);
   const currentGeometry = editing ? state.geoEditingGeometry : entity.geometry;
   const statuses = geoAllowedStatuses(entity);
-  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug)} · ${esc(entity.entityType)} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
+  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entity.entityType)} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
     <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot stays beside the platform geometry. Geometry edits create audit history and never rewrite the original provenance.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(currentGeometry || {}, null, 2))}</pre></div></div></section>
     ${geoLocationSection(entity)}
-    <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity category</h3><p class="field-help">Categories are defined by the programme. Changing a category is audited because programme rules and awards may use the category code.</p></div></div><div class="status-review-grid"><label>Category<select id="geo-entity-type-select">${geoEntityTypeCatalogue(entity).map(item => `<option value="${esc(item.code)}" ${item.code === entity.entityType ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !geoEntityTypeCatalogue(entity).length ? 'disabled' : ''}>Save category</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the category was changed"></textarea></label>${geoEntityTypeCatalogue(entity).length ? '' : '<p class="field-help">No programme categories are available. Add one in Programme administration first.</p>'}</section>
+    <section class="inspector-section entity-name-inspector"><div class="section-heading"><div><h3>Entity name</h3><p class="field-help">Correct the display name when the source contains a spelling, language, or naming error. Name changes are audited and do not alter source provenance.</p></div></div><label class="stacked-field">Name<input id="geo-entity-name" value="${esc(entity.name || '')}" maxlength="240" required></label><label class="stacked-field">Name change note<textarea id="geo-entity-name-note" placeholder="Explain why the name was corrected"></textarea></label><button class="secondary" id="geo-save-entity-name" type="button">Save name</button></section>
+    <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity category</h3><p class="field-help">Categories are shared Master data, not programme-owned. A programme may assign a category for eligibility separately. You can change the category for platform-wide entities as well as programme-assigned entities; every change is audited because rules and awards may use the category code.</p></div></div><div class="status-review-grid"><label>Category<select id="geo-entity-type-select">${geoEntityTypeCatalogue(entity).map(item => `<option value="${esc(item.code)}" ${item.code === entity.entityType ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !geoEntityTypeCatalogue(entity).length ? 'disabled' : ''}>Save category</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the category was changed"></textarea></label>${geoEntityTypeCatalogue(entity).length ? '' : '<p class="field-help">No shared categories are available. Add one in Master data first.</p>'}</section>
     <section class="inspector-section geometry-inspector"><div class="section-heading"><div><h3>Geometry</h3><p class="field-help">Geometry is read-only until you explicitly enter edit mode. Use the map handles to adjust the selected point, way / trail, or polygon.</p></div>${editing ? '<span class="edit-badge">EDIT MODE</span>' : ''}</div>${editing ? `<label class="stacked-field">Geometry change note<textarea id="geo-geometry-note" placeholder="Explain why the geometry was adjusted"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-geometry" type="button">Save geometry</button><button class="secondary" id="geo-cancel-geometry" type="button">Cancel</button></div>` : `<button class="secondary" id="geo-edit-geometry" type="button" ${entity.status === 'RETIRED' ? 'disabled' : ''}>Edit geometry</button><p class="field-help">Editing handles appear only after selecting this button.</p>`}</section>
     <section class="inspector-section"><div class="section-heading"><div><h3>Review decision</h3><p class="field-help">Record the evidence or reason for a lifecycle decision. Approved entities can only be retired so historical QSOs remain valid.</p></div></div><label class="stacked-field">Review note<textarea id="geo-review-note" placeholder="Record the evidence or reason for this decision"></textarea></label><div class="status-review-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-save-status" type="button" ${statuses.length === 1 ? 'disabled' : ''}>Save status</button></div><p class="field-help">Status changes are recorded in the entity audit history.</p></section>
     <section class="inspector-section"><h3>Audit history</h3><div class="audit-list">${geoAuditMarkup(audit)}</div></section>
@@ -332,6 +338,7 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
     adminSection?.insertAdjacentHTML('beforeend', '<div class="form-actions"><button class="danger-button" id="geo-delete-any" type="button">Delete entity permanently</button></div><p class="field-help stern-warning">Global deletion removes this entity, all linked QSOs, recalculates award progress, and may invalidate previously qualified awards. This cannot be undone.</p>');
   }
   $('geo-save-entity-type').onclick = saveGeoLeafletEntityType;
+  $('geo-save-entity-name').onclick = saveGeoLeafletEntityName;
   $('geo-save-status').onclick = saveGeoLeafletStatus;
   $('geo-save-type').onclick = saveGeoLeafletGeometryType;
   if ($('geo-delete-rejected')) $('geo-delete-rejected').onclick = deleteGeoRejected;
@@ -416,6 +423,18 @@ async function saveGeoLeafletEntityType() {
   try {
     await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/entity-type`, {method:'POST', body:JSON.stringify({entityType, editorId:state.account.id, note:$('geo-entity-type-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     notify('Entity category changed with audit history', 'success');
+    await loadGeoReview({preserveSelection:true, force:true});
+  } catch (error) { notify(error.message, 'error'); }
+}
+
+async function saveGeoLeafletEntityName() {
+  const entity = state.geoSelected;
+  const name = $('geo-entity-name')?.value?.trim();
+  if (!entity || !name) return notify('Enter an entity name.', 'error');
+  if (name === entity.name) return;
+  try {
+    await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/name`, {method:'POST', body:JSON.stringify({name, editorId:state.account.id, note:$('geo-entity-name-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    notify('Entity name changed with audit history', 'success');
     await loadGeoReview({preserveSelection:true, force:true});
   } catch (error) { notify(error.message, 'error'); }
 }
@@ -536,6 +555,7 @@ function bindGeoLeafletWorkspace() {
 }
 
 renderGeoReview = async function() {
+  try { await loadGeoEntityTypeCatalogue(); } catch (error) { state.entityTypeCatalogue = []; notify(`Unable to load shared categories: ${error.message}`, 'error'); }
   geoLeafletLoadSequence += 1;
   clearTimeout(geoLeafletViewportTimer);
   if (geoLeafletMap) { geoLeafletMap.remove(); geoLeafletMap = null; }
