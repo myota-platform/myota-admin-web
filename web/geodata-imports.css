@@ -1,0 +1,22 @@
+.import-run-row{align-items:center;background:var(--white);border:0;border-bottom:1px solid var(--line);display:flex;gap:14px;justify-content:space-between;text-align:left;width:100%}
+.import-run-row:hover{background:#f3f9f7}
+.import-run-row>span:first-child{min-width:0}
+.import-run-row strong,.import-run-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.import-run-row .status-pill{flex:none}
+.geo-import-modal{border:0;border-radius:14px;box-shadow:0 24px 70px #123b3240;color:var(--ink);max-height:85vh;max-width:760px;padding:26px;width:calc(100% - 32px)}
+.geo-import-modal::backdrop{background:#102a2a66}
+.import-summary-heading{align-items:start;display:flex;gap:20px;justify-content:space-between}
+.import-summary-heading h2{margin:0 0 4px}
+.import-summary-heading .status-pill{flex:none}
+.import-summary-metrics{display:grid;gap:10px;grid-template-columns:repeat(5,minmax(0,1fr));margin:22px 0}
+.import-summary-metrics .metric{padding:12px}
+.import-summary-metrics .metric strong{font-size:22px}
+.import-summary-details{border-top:1px solid var(--line);display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));margin:0;padding-top:16px}
+.import-summary-details div{min-width:0}
+.import-summary-details dt{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}
+.import-summary-details dd{margin:2px 0 0;overflow-wrap:anywhere}
+.import-summary-errors{border-top:1px solid #efb2b2;color:var(--danger);margin-top:18px;padding-top:14px}
+.import-summary-errors h3{margin:0}
+.import-summary-errors ul{margin-bottom:0;padding-left:20px}
+.geo-import-modal>.form-actions{justify-content:flex-end;margin-top:22px}
+@media(max-width:700px){.import-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.import-summary-details{grid-template-columns:1fr}.geo-import-modal{padding:18px}}

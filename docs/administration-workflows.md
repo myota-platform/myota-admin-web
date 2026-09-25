@@ -24,6 +24,26 @@ The inspector provides:
 
 Geometry edits never overwrite the stored source snapshot. Approval is an explicit state transition and remains subject to the authenticated approver scope enforced by the geodata service.
 
+## Geodata imports
+
+Open **Geodata imports** for platform-wide dataset intake. Choose one or more
+shared categories, then either paste a supported text document or upload a
+file. A file satisfies the source requirement by itself; the paste field is
+optional whenever a file has been selected. Binary formats must be uploaded.
+
+Submitting a text dataset returns immediately with a `QUEUED` import run. Text
+parsing, geometry normalization, reverse-geocoding, deduplication, and
+candidate persistence run asynchronously, so large pasted FeatureCollections
+do not hold the browser request open. The request body is bounded by the
+deployment's configured geodata import limit, and the run remains visible after
+the page is refreshed.
+
+Click any run in **Recent import runs** to open its summary. The modal shows
+the lifecycle status, timestamps, selected categories, source licence and
+attribution, source hash/change information, counts of created/updated/skipped
+features, disappeared records, and processing errors. Imports always create or
+refresh `CANDIDATE` entities; programme assignment is separate.
+
 ## Entity map
 
 The **Entity map** page is a read-only Leaflet view of the complete stored
