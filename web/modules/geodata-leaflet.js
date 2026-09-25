@@ -20,6 +20,7 @@ const GEO_TILE_URL = window.MYOTA_TILE_URL || 'https://tile.openstreetmap.org/{z
 const GEO_DEFAULT_CENTER = [37.395, -5.995];
 const GEO_DEFAULT_ZOOM = 12;
 const GEO_STATUS_ORDER = ['CANDIDATE', 'PROPOSED', 'APPROVED', 'RETIRED', 'REJECTED'];
+function geoIsGlobalAdmin() { try { const payload = JSON.parse(atob(token().split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return (payload.scp || []).includes('*') || (payload.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } catch (_) { return (state.account?.scopes || []).includes('*') || (state.account?.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } }
 
 function geoLeafletStatusStyle(status, selected = false) {
   const colors = {
@@ -321,11 +322,34 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
     $('geo-edit-geometry').onclick = enterGeoLeafletEdit;
   }
   bindGeoLocationEditor();
+  const geometryTypeSelect = $('geo-geometry-type');
+  if (geometryTypeSelect) {
+    const currentType = entity.geometry?.type === 'LineString' ? 'LINESTRING' : entity.geometry?.type === 'MultiLineString' ? 'MULTILINESTRING' : entity.geometry?.type === 'MultiPolygon' ? 'MULTIPOLYGON' : String(entity.geometry?.type || 'Polygon').toUpperCase();
+    geometryTypeSelect.innerHTML = [['POINT','Point'],['LINESTRING','LineString / way'],['MULTILINESTRING','MultiLineString'],['POLYGON','Polygon'],['MULTIPOLYGON','MultiPolygon']].map(([value,label]) => `<option value="${value}" ${value === currentType ? 'selected' : ''}>${label}</option>`).join('');
+  }
+  if (geoIsGlobalAdmin()) {
+    const adminSection = document.querySelector('.gis-admin-section');
+    adminSection?.insertAdjacentHTML('beforeend', '<div class="form-actions"><button class="danger-button" id="geo-delete-any" type="button">Delete entity permanently</button></div><p class="field-help stern-warning">Global deletion removes this entity, all linked QSOs, recalculates award progress, and may invalidate previously qualified awards. This cannot be undone.</p>');
+  }
   $('geo-save-entity-type').onclick = saveGeoLeafletEntityType;
   $('geo-save-status').onclick = saveGeoLeafletStatus;
   $('geo-save-type').onclick = saveGeoLeafletGeometryType;
   if ($('geo-delete-rejected')) $('geo-delete-rejected').onclick = deleteGeoRejected;
+  if ($('geo-delete-any')) $('geo-delete-any').onclick = deleteGeoAny;
   if (editableEntry?.editable && editing) editableEntry.editable.pm?.enable({allowSelfIntersection:false, snappable:true});
+}
+
+async function deleteGeoAny() {
+  const entity = state.geoSelected;
+  if (!entity) return;
+  try {
+    const impact = await api(`/v1/activations/admin/entities/${encodeURIComponent(entity.id)}/deletion-impact`);
+    const warning = `PERMANENT GLOBAL DELETION\n\n${entity.name} (${entity.status}) will be removed. ${impact.qsoCount || 0} valid QSOs will be deleted in cascade and ${impact.activationCount || 0} activation(s) will become invalid. Award progress will be recalculated and previously qualified awards may become invalid.\n\nThis cannot be undone. Continue?`;
+    if (!confirm(warning)) return;
+    await api(`/v1/activations/admin/entities/${encodeURIComponent(entity.id)}/cascade-delete`, {method:'POST', body:JSON.stringify({deletedBy:state.account.id}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/delete`, {method:'POST', body:JSON.stringify({deletedBy:state.account.id}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    notify('Entity deleted; linked QSOs were removed and award recalculation was queued', 'success'); state.geoSelected = null; await loadGeoReview({preserveSelection:false, force:true});
+  } catch (error) { notify(error.message, 'error'); }
 }
 
 async function selectGeoEntity(id) {
@@ -508,8 +532,6 @@ function bindGeoLeafletWorkspace() {
   $('geo-programme').onchange = () => { state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); };
   $('geo-status').onchange = () => loadGeoReview({preserveSelection:true, force:true});
   document.querySelectorAll('[data-geo-layer]').forEach(input => input.onchange = renderGeoLeafletLayers);
-  $('geo-import-toggle').onclick = event => { event.preventDefault(); $('geo-import').hidden = !$('geo-import').hidden; if (!$('geo-import').hidden) $('import-features')?.focus(); };
-  $('geo-import-form').onsubmit = submitImport;
   $('geo-draw-toggle').onclick = () => { state.geoDrawingActive = !state.geoDrawingActive; if (!state.geoDrawingActive) stopGeoDrawing(); renderGeoDrawPanel(); };
 }
 
@@ -524,6 +546,7 @@ renderGeoReview = async function() {
   geoLeafletDrawingLayer = null;
   const view = $('geodata-view');
   view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">POSTGIS WORKFLOW</p><h1>Geodata review</h1><p class="muted">Review source-backed entities inside the visible map area. Select an item to center the map; enter edit mode only when geometry needs changing.</p></div><button class="secondary" id="geo-refresh" type="button">Refresh map</button></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="secondary" id="geo-import-toggle" type="button">Import GeoJSON</button><button class="primary" id="geo-draw-toggle" type="button">New candidate</button></div><div id="geo-import" class="panel geo-import-panel" hidden><div class="panel-heading"><h2>Import GeoJSON</h2><span class="muted">Imported features enter as candidates and retain source metadata.</span></div><form id="geo-import-form" class="form-grid"><label>Programme<select id="import-programme">${state.programmes.map(p => `<option value="${esc(p.slug)}">${esc(p.name)}</option>`).join('')}</select></label><label>Source name<input id="import-source" value="Manual administration import" required></label><label class="wide">GeoJSON feature collection<textarea id="import-features" required>{"type":"FeatureCollection","features":[]}</textarea></label><div class="form-actions wide"><button class="primary" type="submit">Queue import</button></div></form></div><div class="geo-layout"><aside class="panel geo-sidebar"><div class="panel-heading"><div><p class="eyebrow">VISIBLE QUEUE</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div><div class="layer-filter"><strong>Layers</strong><label class="layer-toggle candidate"><input data-geo-layer id="layer-candidate" type="checkbox" checked> Candidate</label><label class="layer-toggle proposed"><input data-geo-layer id="layer-proposed" type="checkbox" checked> Proposed</label><label class="layer-toggle approved"><input data-geo-layer id="layer-approved" type="checkbox" checked> Approved</label><label class="layer-toggle retired"><input data-geo-layer id="layer-retired" type="checkbox" checked> Retired</label><label class="layer-toggle rejected"><input data-geo-layer id="layer-rejected" type="checkbox" checked> Rejected</label></div><p class="map-binding-note">The queue follows the current map bounding box. Panning or zooming refreshes it.</p><div id="geo-entity-list" class="geo-entity-list"></div></aside><section class="geo-center"><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap geodata review map"></div><article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">ENTITY INSPECTOR</p><h2>Select an entity</h2><p class="muted">Choose an item from the queue to begin review.</p></div></article></section></div>`;
+  $('geo-import-toggle')?.remove(); $('geo-import')?.remove();
   bindGeoLeafletWorkspace();
   const map = ensureGeoLeafletMap();
   if (!map) return;

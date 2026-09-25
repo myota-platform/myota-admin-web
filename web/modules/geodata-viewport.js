@@ -65,22 +65,3 @@ function bindGeoEntityControls() {
 }
 const selectGeoEntityWithEntityControls = selectGeoEntity;
 selectGeoEntity = async function(id) { await selectGeoEntityWithEntityControls(id); bindGeoEntityControls(); };
-
-function bindGeoImportControls() {
-  const toggle = $('geo-import-toggle');
-  const panel = $('geo-import');
-  const form = $('geo-import-form');
-  if (!toggle || !panel || !form) return;
-  toggle.type = 'button';
-  toggle.onclick = event => {
-    event.preventDefault();
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) $('import-features')?.focus();
-  };
-  form.onsubmit = submitImport;
-}
-const renderGeoReviewWithImportControls = renderGeoReview;
-renderGeoReview = async function() {
-  await renderGeoReviewWithImportControls();
-  bindGeoImportControls();
-};
