@@ -595,6 +595,10 @@ function bindGeoLeafletWorkspace() {
     loadGeoReview({preserveSelection:false, force:true});
   };
   $('geo-filter-status-all').onchange = event => {
+    if (!event.target.checked) {
+      event.target.checked = true;
+      return;
+    }
     document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = event.target.checked; });
     geoReviewPage = 1;
     loadGeoReview({preserveSelection:false, force:true});
