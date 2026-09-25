@@ -166,8 +166,16 @@ const GEO_LOCATION_FIELDS = [
   ['county', 'County / equivalent'], ['countyCode', 'County code'],
   ['city', 'City'], ['municipality', 'Municipality'],
 ];
+const GEO_LOCATION_HIERARCHY = [
+  {field:'continent', code:'continentCode', label:'Continent', child:'countries'},
+  {field:'country', code:'countryCode', label:'Country', child:'subdivisions'},
+  {field:'region', code:'regionCode', aliasCode:'subdivisionCode', label:'Region / first subdivision', child:'provinces'},
+  {field:'province', code:'provinceCode', label:'Province'},
+];
+const GEO_LOCATION_TEXT_FIELDS = ['continent', 'country', 'region', 'province', 'county', 'city', 'municipality', 'locality'];
 
 function geoLocationValue(entity, field) {
+  if (field === 'region') return entity.region ?? entity.subdivision ?? entity.location?.region ?? entity.location?.subdivision ?? '';
   return entity[field] ?? entity.location?.[field] ?? '';
 }
 
@@ -177,18 +185,86 @@ function geoLocationSection(entity) {
   return `<section class="inspector-section location-inspector"><div class="section-heading"><div><h3>Location metadata</h3><p class="field-help">Values come from BigDataCloud reverse geocoding unless a field is marked as a manual override. Manual values always take precedence during imports and geometry refreshes.</p></div><span class="help-badge ${manual.size ? '' : 'neutral'}">${manual.size ? `${manual.size} manual` : 'Automatic'}</span></div><div class="location-summary">${rows}</div><button class="secondary" id="geo-edit-location" type="button">Edit location metadata</button></section>`;
 }
 
+function geoCatalogOptions(field) {
+  const tree = state.geoLocationOptions || [];
+  if (field === 'continent') return tree;
+  const countries = tree.flatMap(continent => continent.countries || []);
+  if (field === 'country') return countries;
+  const selectedCountry = document.querySelector('[data-location-selector="country"]')?.value?.trim().toLowerCase();
+  const country = countries.find(item => item.name.toLowerCase() === selectedCountry);
+  if (field === 'region') return country ? country.subdivisions : countries.flatMap(item => item.subdivisions || []);
+  const selectedRegion = document.querySelector('[data-location-selector="region"]')?.value?.trim().toLowerCase();
+  const subdivisions = country ? country.subdivisions : countries.flatMap(item => item.subdivisions || []);
+  const subdivision = subdivisions.find(item => item.name.toLowerCase() === selectedRegion);
+  return subdivision ? subdivision.provinces : subdivisions.flatMap(item => item.provinces || []);
+}
+
+function geoCatalogMatch(field, value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return geoCatalogOptions(field).find(item => item.name.toLowerCase() === normalized) || null;
+}
+
+function geoLocationHierarchyField(entity, metadata, manual) {
+  const value = geoLocationValue(entity, metadata.field);
+  const codeFields = [metadata.code, metadata.aliasCode].filter(Boolean);
+  const codeInputs = codeFields.map(code => `<label class="derived-code"><span>${esc(code === 'subdivisionCode' ? 'Subdivision code' : `${metadata.label} code`)}</span><input data-location-code="${code}" value="${esc(geoLocationValue(entity, code))}" readonly aria-readonly="true"><small>Provider-derived; not editable</small></label>`).join('');
+  return `<div class="location-edit-field location-hierarchy-field"><span>${esc(metadata.label)}</span><input list="geo-options-${metadata.field}" data-location-selector="${metadata.field}" data-location-field="${metadata.field}" value="${esc(value)}" placeholder="Search valid provider value" autocomplete="off"><datalist id="geo-options-${metadata.field}"></datalist>${codeInputs}<span class="manual-toggle"><input type="checkbox" aria-label="Manual override for ${esc(metadata.label)}" data-location-manual="${metadata.field}" ${manual.has(metadata.field) ? 'checked' : ''}> Manual override</span></div>`;
+}
+
+function geoLocationTextField(entity, field, label, manual) {
+  return `<label class="location-edit-field"><span>${esc(label)}</span><input data-location-field="${field}" value="${esc(geoLocationValue(entity, field))}" placeholder="Automatic value"><span class="manual-toggle"><input type="checkbox" aria-label="Manual override for ${esc(label)}" data-location-manual="${field}" ${manual.has(field) ? 'checked' : ''}> Manual override</span></label>`;
+}
+
+function geoRefreshLocationSelectors(changedField) {
+  const changedIndex = GEO_LOCATION_HIERARCHY.findIndex(item => item.field === changedField);
+  const selected = geoCatalogMatch(changedField, document.querySelector(`[data-location-selector="${changedField}"]`)?.value);
+  const selectedInput = document.querySelector(`[data-location-selector="${changedField}"]`);
+  const metadata = GEO_LOCATION_HIERARCHY[changedIndex];
+  const codeInput = document.querySelector(`[data-location-code="${metadata.code}"]`);
+  if (codeInput) codeInput.value = selected?.code || '';
+  if (metadata.aliasCode) {
+    const aliasInput = document.querySelector(`[data-location-code="${metadata.aliasCode}"]`);
+    if (aliasInput) aliasInput.value = selected?.code || '';
+  }
+  GEO_LOCATION_HIERARCHY.slice(changedIndex + 1).forEach(item => {
+    const input = document.querySelector(`[data-location-selector="${item.field}"]`);
+    if (input) input.value = '';
+    [item.code, item.aliasCode].filter(Boolean).forEach(code => { const codeInput = document.querySelector(`[data-location-code="${code}"]`); if (codeInput) codeInput.value = ''; });
+  });
+  GEO_LOCATION_HIERARCHY.forEach(item => {
+    const list = document.querySelector(`#geo-options-${item.field}`);
+    if (!list) return;
+    list.innerHTML = geoCatalogOptions(item.field).map(option => `<option value="${esc(option.name)}" label="${esc(option.code || 'Code unavailable')}"></option>`).join('');
+  });
+  if (selectedInput && !selected) selectedInput.setCustomValidity('Choose a value from the provider-derived list.');
+  else if (selectedInput) selectedInput.setCustomValidity('');
+}
+
+function populateGeoLocationSelectors() {
+  GEO_LOCATION_HIERARCHY.forEach(item => {
+    const list = document.querySelector(`#geo-options-${item.field}`);
+    if (list) list.innerHTML = geoCatalogOptions(item.field).map(option => `<option value="${esc(option.name)}" label="${esc(option.code || 'Code unavailable')}"></option>`).join('');
+  });
+}
+
 function geoLocationEditor(entity) {
   const manual = new Set(entity.manualLocationFields || []);
-  const fields = GEO_LOCATION_FIELDS.map(([field, label]) => `<label class="location-edit-field"><span>${esc(label)}</span><input data-location-field="${field}" value="${esc(geoLocationValue(entity, field))}" placeholder="Automatic value"><span class="manual-toggle"><input type="checkbox" data-location-manual="${field}" ${manual.has(field) ? 'checked' : ''}> Manual override</span></label>`).join('');
-  return `<div class="section-heading"><div><h3>Edit location metadata</h3><p class="field-help">Check Manual override for values that must remain authoritative. Unchecked fields are refreshed from the entity centroid.</p></div><span class="edit-badge">EDIT MODE</span></div><div class="location-edit-grid">${fields}</div><label class="stacked-field location-note">Change note<textarea id="geo-location-note" placeholder="Explain the location correction"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-location" type="button">Save location</button><button class="secondary" id="geo-cancel-location" type="button">Cancel</button></div>`;
+  const hierarchy = GEO_LOCATION_HIERARCHY.map(metadata => geoLocationHierarchyField(entity, metadata, manual)).join('');
+  const supporting = [
+    ['county', 'County / equivalent'], ['city', 'City'], ['municipality', 'Municipality'], ['locality', 'Locality'],
+  ].map(([field, label]) => geoLocationTextField(entity, field, label, manual)).join('');
+  return `<div class="section-heading"><div><h3>Edit location metadata</h3><p class="field-help">Choose values from the provider-derived hierarchy. Codes are read-only and are filled from the selected name. Check Manual override only for values that must remain authoritative.</p></div><span class="edit-badge">EDIT MODE</span></div><div class="location-edit-grid">${hierarchy}${supporting}</div><label class="stacked-field location-note">Change note<textarea id="geo-location-note" placeholder="Explain the location correction"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-location" type="button">Save location</button><button class="secondary" id="geo-cancel-location" type="button">Cancel</button></div>`;
 }
 
 function bindGeoLocationEditor() {
   const entity = state.geoSelected;
   const section = document.querySelector('.location-inspector');
   if (!entity || !section) return;
-  $('geo-edit-location').onclick = () => {
+  $('geo-edit-location').onclick = async () => {
+    try { state.geoLocationOptions = (await api('/v1/geodata/location-options')).continents || []; } catch (error) { notify(`Location options unavailable: ${error.message}`, 'error'); state.geoLocationOptions = []; }
     section.innerHTML = geoLocationEditor(entity);
+    populateGeoLocationSelectors();
+    document.querySelectorAll('[data-location-selector]').forEach(input => input.addEventListener('change', () => geoRefreshLocationSelectors(input.dataset.locationSelector)));
     $('geo-save-location').onclick = saveGeoLocation;
     $('geo-cancel-location').onclick = () => renderGeoInspector(state.geoAudit || {});
   };
@@ -199,6 +275,9 @@ async function saveGeoLocation() {
   if (!entity) return;
   const location = {};
   document.querySelectorAll('[data-location-field]').forEach(input => { location[input.dataset.locationField] = input.value.trim() || null; });
+  document.querySelectorAll('[data-location-code]').forEach(input => { location[input.dataset.locationCode] = input.value.trim() || null; });
+  const region = location.region || location.subdivision;
+  if (region) location.subdivision = region;
   const manualFields = [...document.querySelectorAll('[data-location-manual]:checked')].map(input => input.dataset.locationManual);
   try {
     await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/location`, {method:'POST', body:JSON.stringify({location, manualFields, editorId:state.account.id, note:$('geo-location-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
