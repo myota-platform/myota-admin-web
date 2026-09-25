@@ -1,5 +1,10 @@
+const MASTER_DATA_GEOMETRY_TYPES = [
+  ['POINT', 'Point'], ['LINESTRING', 'LineString'], ['MULTILINESTRING', 'MultiLineString'],
+  ['POLYGON', 'Polygon'], ['MULTIPOLYGON', 'MultiPolygon']
+];
+
 function masterDataCategoryListMarkup(items) {
-  return items.map(item => `<button type="button" class="table-row entity-type-master-row" data-master-entity-type="${esc(item.code)}"><span><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc(item.geometry || 'MULTIPOLYGON')}</small><small>${item.active === false ? 'Inactive for new entities' : 'Available for new entities'} · ${(item.assignedProgrammes || []).length} programme${(item.assignedProgrammes || []).length === 1 ? '' : 's'}</small></span><span class="status-pill ${item.active === false ? 'muted-pill' : 'approved'}">${item.active === false ? 'Inactive' : 'Active'}</span></button>`).join('') || '<p class="muted empty">No shared categories are configured yet.</p>';
+  return items.map(item => `<button type="button" class="table-row entity-type-master-row" data-master-entity-type="${esc(item.code)}"><span><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc((item.geometryTypes || [item.geometry || 'MULTIPOLYGON']).join(', '))}</small><small>${item.active === false ? 'Inactive for new entities' : 'Available for new entities'} · ${(item.assignedProgrammes || []).length} programme${(item.assignedProgrammes || []).length === 1 ? '' : 's'}</small></span><span class="status-pill ${item.active === false ? 'muted-pill' : 'approved'}">${item.active === false ? 'Inactive' : 'Active'}</span></button>`).join('') || '<p class="muted empty">No shared categories are configured yet.</p>';
 }
 
 async function loadEntityTypeCatalogue() {
@@ -10,8 +15,10 @@ async function loadEntityTypeCatalogue() {
 
 function masterDataCategoryEditor(item = {}) {
   const editing = Boolean(item.code);
+  const selectedGeometryTypes = new Set(item.geometryTypes || (item.geometry ? [item.geometry] : ['MULTIPOLYGON']));
+  const geometryOptions = MASTER_DATA_GEOMETRY_TYPES.map(([value, label]) => `<label class="master-data-geometry-option"><input type="checkbox" name="master-data-category-geometry" value="${value}" ${selectedGeometryTypes.has(value) ? 'checked' : ''}><span>${label}</span></label>`).join('');
   return `<div class="panel-heading"><div><p class="eyebrow">ENTITY CATEGORY</p><h2>${editing ? `Edit ${esc(item.label || item.code)}` : 'New category'}</h2></div>${editing ? `<span class="status-pill ${item.active === false ? 'muted-pill' : 'approved'}">${item.active === false ? 'INACTIVE' : 'ACTIVE'}</span>` : ''}</div>
-    <p class="field-help">Categories are programme-owned master data. Their codes are stable identifiers used by imports, activity, awards, and historical records.</p>
+    <p class="field-help">Categories are shared master data. Their codes are stable identifiers used by imports, activity, awards, and historical records, and the same category can be assigned to multiple programmes.</p>
     <form id="master-data-category-form" class="form-grid">
       <input type="hidden" id="master-data-category-original" value="${esc(item.code || '')}">
       <label>Category code
@@ -22,15 +29,7 @@ function masterDataCategoryEditor(item = {}) {
         <input id="master-data-category-label" value="${esc(item.label || '')}" placeholder="Municipal park" required>
         <small class="field-help">The readable name shown in Geodata Review and programme interfaces.</small>
       </label>
-      <label>Geometry type
-        <select id="master-data-category-geometry">
-          <option value="POINT" ${item.geometry === 'POINT' ? 'selected' : ''}>Point</option>
-          <option value="LINESTRING" ${item.geometry === 'LINESTRING' ? 'selected' : ''}>Way / trail (LineString)</option>
-          <option value="POLYGON" ${item.geometry === 'POLYGON' ? 'selected' : ''}>Polygon</option>
-          <option value="MULTIPOLYGON" ${!item.geometry || item.geometry === 'MULTIPOLYGON' ? 'selected' : ''}>MultiPolygon</option>
-        </select>
-        <small class="field-help">The geometry shape expected for entities in this category.</small>
-      </label>
+      <fieldset class="master-data-geometry-field"><legend>Allowed geometry types</legend><div class="master-data-geometry-grid">${geometryOptions}</div><small class="field-help">Select every GeoJSON geometry type accepted by this category. A category may support multiple types.</small></fieldset>
       <label>Availability
         <select id="master-data-category-active">
           <option value="true" ${item.active !== false ? 'selected' : ''}>Active — available for new entities</option>
@@ -57,6 +56,8 @@ function setMasterDataCategoryEditor(item = {}) {
     const label = $('master-data-category-label').value.trim();
     if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return notify('Category code must use uppercase letters, numbers, and underscores.', 'error');
     if (!label) return notify('Enter a display name for the category.', 'error');
+    const geometryTypes = [...document.querySelectorAll('input[name="master-data-category-geometry"]:checked')].map(input => input.value);
+    if (!geometryTypes.length) return notify('Select at least one allowed geometry type.', 'error');
     try {
       await api('/v1/entity-types', {
         method: 'POST',
@@ -64,7 +65,7 @@ function setMasterDataCategoryEditor(item = {}) {
           code,
           originalCode: originalCode || code,
           label,
-          geometry: $('master-data-category-geometry').value,
+          geometryTypes,
           active: $('master-data-category-active').value === 'true',
           description: $('master-data-category-description').value.trim()
         }),
@@ -102,7 +103,7 @@ async function renderMasterData() {
   view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">PLATFORM CATALOGUE</p><h1>Master data</h1><p class="muted">Manage the programme-owned values used across imports, geodata review, activity, and awards.</p></div><button class="secondary" id="master-data-refresh">Refresh</button></div>
     <div class="toolbar"><span class="toolbar-context">Shared catalogue · assignments are managed from Programme Management</span><button type="button" class="primary" id="master-data-new-category">New category</button></div>
     <div class="split-layout master-data-layout"><article class="panel"><div class="panel-heading"><div><h2>Entity categories</h2><small class="muted">Examples include MUNICIPAL_PARK, NATURE_RESERVE, and TRAIL.</small></div></div><div id="master-data-category-list" class="table-list"></div></article><article class="panel" id="master-data-category-editor"><div class="panel-heading"><h2>Select a category</h2></div><p class="muted empty">Choose a category to edit it, or create a new one.</p></article></div>
-    <article class="panel master-data-help"><div class="panel-heading"><div><p class="eyebrow">HOW THIS WORKS</p><h2>Programme-owned categories</h2></div></div><div class="master-data-help-grid"><div><strong>Stable code</strong><p class="field-help">The code is the durable identifier stored with entities and referenced by programme rules, awards, imports, and historical activity. It cannot be renamed.</p></div><div><strong>Geometry type</strong><p class="field-help">This tells the platform whether the category accepts a point, trail/way, polygon, or multipolygon. It guides validation and map editing.</p></div><div><strong>Active lifecycle</strong><p class="field-help">Deactivate a category when it should no longer be used for new entities. Existing entities keep their historical category.</p></div></div></article>`;
+    <article class="panel master-data-help"><div class="panel-heading"><div><p class="eyebrow">HOW THIS WORKS</p><h2>Shared categories</h2></div></div><div class="master-data-help-grid"><div><strong>Stable code</strong><p class="field-help">The code is the durable identifier stored with entities and referenced by programme rules, awards, imports, and historical activity. It cannot be renamed.</p></div><div><strong>Allowed geometry types</strong><p class="field-help">Select one or more of Point, LineString, MultiLineString, Polygon, and MultiPolygon. The selection guides validation and map editing for entities using this category.</p></div><div><strong>Active lifecycle</strong><p class="field-help">Deactivate a category when it should no longer be used for new entities. Existing entities keep their historical category.</p></div></div></article>`;
   $('master-data-refresh').onclick = () => loadMasterDataCategories();
   $('master-data-new-category').onclick = () => setMasterDataCategoryEditor({});
   await loadMasterDataCategories();

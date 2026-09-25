@@ -1,10 +1,10 @@
 function entityTypeListMarkup(entityTypes) {
-  return entityTypes.map(item => `<div class="entity-type-row"><div><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc(item.geometry || 'MULTIPOLYGON')} · ${item.active === false ? 'Inactive' : 'Active'}</small>${item.description ? `<p class="field-help">${esc(item.description)}</p>` : ''}</div><button type="button" class="danger-outline" data-remove-entity-type="${esc(item.code)}">Remove assignment</button></div>`).join('') || '<p class="muted empty">No categories assigned to this programme yet.</p>';
+  return entityTypes.map(item => `<div class="entity-type-row"><div><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc((item.geometryTypes || [item.geometry || 'MULTIPOLYGON']).join(', '))} · ${item.active === false ? 'Inactive' : 'Active'}</small>${item.description ? `<p class="field-help">${esc(item.description)}</p>` : ''}</div><button type="button" class="danger-outline" data-remove-entity-type="${esc(item.code)}">Remove assignment</button></div>`).join('') || '<p class="muted empty">No categories assigned to this programme yet.</p>';
 }
 
 function programmeEntityTypeOptions(entityTypes) {
   const assigned = new Set(entityTypes.map(item => item.code));
-  const options = state.entityTypeCatalogue.filter(item => !assigned.has(item.code)).map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)} · ${esc(item.code)} · ${esc(item.geometry || 'MULTIPOLYGON')}</option>`).join('');
+  const options = state.entityTypeCatalogue.filter(item => !assigned.has(item.code)).map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)} · ${esc(item.code)} · ${esc((item.geometryTypes || [item.geometry || 'MULTIPOLYGON']).join(', '))}</option>`).join('');
   return options || '<option value="">All shared categories are assigned</option>';
 }
 

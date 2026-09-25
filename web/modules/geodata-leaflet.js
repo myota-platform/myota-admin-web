@@ -45,7 +45,7 @@ function geoLeafletVisible(status) {
 function geoLeafletMakeLayer(entity) {
   const selected = state.geoSelected?.id === entity.id;
   const baseStyle = geoLeafletStatusStyle(entity.status, selected);
-  const style = entity.geometry?.type === 'LineString' ? {...baseStyle, dashArray:'8 6', lineCap:'round', lineJoin:'round'} : baseStyle;
+  const style = ['LineString', 'MultiLineString'].includes(entity.geometry?.type) ? {...baseStyle, dashArray:'8 6', lineCap:'round', lineJoin:'round'} : baseStyle;
   const group = L.geoJSON(geoLeafletFeature(entity), {
     style,
     pointToLayer: (_feature, latlng) => L.circleMarker(latlng, style)

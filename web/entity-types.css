@@ -72,6 +72,44 @@
   margin-right: auto;
 }
 
+.master-data-geometry-field {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  grid-column: span 2;
+  margin: 0;
+  padding: 10px 12px 12px;
+}
+
+.master-data-geometry-field legend {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 5px;
+}
+
+.master-data-geometry-grid {
+  display: grid;
+  gap: 8px 14px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.master-data-geometry-option {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 7px;
+}
+
+.master-data-geometry-option input {
+  accent-color: var(--primary);
+  margin: 0;
+  width: auto;
+}
+
 @media (max-width: 900px) {
   .master-data-help-grid { grid-template-columns: 1fr; }
+  .master-data-geometry-field { grid-column: auto; }
+  .master-data-geometry-grid { grid-template-columns: repeat(2, 1fr); }
 }
