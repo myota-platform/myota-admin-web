@@ -5,18 +5,24 @@ policy without inheriting rules from another programme. The common controls
 cover minimum activation QSOs, minimum hunter QSOs, activation validity,
 public-access requirements, overlap handling, and theme colors.
 
-## Entity types (JSON)
+## Entity categories (JSON compatibility field)
 
-Entity types are the programme's catalogue of places that can participate. The
-editor intentionally keeps this field in JSON until a dedicated entity-type
+Entity categories are shared Master data, not owned by one programme. The
+Programme Editor keeps its legacy JSON field for compatibility, while the
+Master data page defines the catalogue and Programme Management assigns shared
+categories to one or more programmes. Geodata imports and review use the full
+database-backed catalogue even when an entity has no programme assignment.
+
+The editor intentionally keeps this field in JSON until a dedicated category
 builder is added.
 
 Use an array of objects. Each object should contain:
 
 - `code`: stable machine identifier used by imports and historical records.
 - `label`: human-readable name shown to administrators and participants.
-- `geometry`: expected PostGIS geometry, normally `POINT`, `POLYGON`, or
-  `MULTIPOLYGON`.
+- `geometry` or `geometryTypes`: accepted GeoJSON/PostGIS geometry types. The
+  supported values are `POINT`, `LINESTRING`, `MULTILINESTRING`, `POLYGON`,
+  and `MULTIPOLYGON`; one category can allow more than one type.
 
 Example:
 
@@ -25,12 +31,12 @@ Example:
   {
     "code": "MUNICIPAL_PARK",
     "label": "Municipal park",
-    "geometry": "MULTIPOLYGON"
+    "geometryTypes": ["POLYGON", "MULTIPOLYGON"]
   },
   {
     "code": "RIVERSIDE_SITE",
     "label": "Riverside site",
-    "geometry": "POLYGON"
+    "geometryTypes": ["POLYGON"]
   }
 ]
 ```
@@ -41,5 +47,5 @@ a new code and retire the old one through a future policy version.
 
 Programme owners may add metadata fields, but the platform currently relies on
 the three fields above for display, import normalization, and geometry checks.
-The JSON describes the catalogue only; eligibility, access rules, awards, and
-approval policy remain programme-owned configuration.
+The JSON describes category assignments and geometry hints only; eligibility,
+access rules, awards, and approval policy remain programme-owned configuration.
