@@ -14,7 +14,8 @@ and account controls do not leak into the participant-facing application.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
-- Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/polygon drawing, and source/audit-aware inspection.
+- Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/way/polygon drawing, and source/audit-aware inspection.
+- Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
@@ -37,8 +38,9 @@ that proxy must provide an identifiable User-Agent and follow the provider’s
 terms. See the [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
 before changing the tile provider or request behavior.
 
-Programme configuration details, including the current Entity Types JSON
-format, are documented in [`docs/programme-configuration.md`](docs/programme-configuration.md).
+Programme configuration details, including the legacy shared Entity Categories
+JSON compatibility format and geometry type rules, are documented in
+[`docs/programme-configuration.md`](docs/programme-configuration.md).
 
 ## Local run
 
