@@ -32,3 +32,46 @@
   display: flex;
   gap: 8px;
 }
+
+.master-data-layout .panel {
+  min-height: 360px;
+}
+
+.entity-type-master-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  text-align: left;
+}
+
+.entity-type-master-row > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.entity-type-master-row small {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.master-data-help-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.master-data-help-grid strong {
+  color: var(--primary-dark);
+}
+
+.toolbar-context {
+  color: var(--muted);
+  font-size: 12px;
+  margin-right: auto;
+}
+
+@media (max-width: 900px) {
+  .master-data-help-grid { grid-template-columns: 1fr; }
+}

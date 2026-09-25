@@ -1,5 +1,11 @@
 function entityTypeListMarkup(entityTypes) {
-  return entityTypes.map(item => `<div class="entity-type-row"><div><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc(item.geometry || 'MULTIPOLYGON')} · ${item.active === false ? 'Inactive' : 'Active'}</small>${item.description ? `<p class="field-help">${esc(item.description)}</p>` : ''}</div><button type="button" class="secondary" data-edit-entity-type="${esc(item.code)}">Edit</button></div>`).join('') || '<p class="muted empty">No categories configured yet.</p>';
+  return entityTypes.map(item => `<div class="entity-type-row"><div><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc(item.geometry || 'MULTIPOLYGON')} · ${item.active === false ? 'Inactive' : 'Active'}</small>${item.description ? `<p class="field-help">${esc(item.description)}</p>` : ''}</div><button type="button" class="danger-outline" data-remove-entity-type="${esc(item.code)}">Remove assignment</button></div>`).join('') || '<p class="muted empty">No categories assigned to this programme yet.</p>';
+}
+
+function programmeEntityTypeOptions(entityTypes) {
+  const assigned = new Set(entityTypes.map(item => item.code));
+  const options = state.entityTypeCatalogue.filter(item => !assigned.has(item.code)).map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)} · ${esc(item.code)} · ${esc(item.geometry || 'MULTIPOLYGON')}</option>`).join('');
+  return options || '<option value="">All shared categories are assigned</option>';
 }
 
 function programmeForm(p = {}) {
@@ -52,19 +58,14 @@ function programmeForm(p = {}) {
     </section>
 
     <section class="form-section wide" aria-labelledby="entity-types-heading">
-      <div class="section-heading"><div><p class="eyebrow">ENTITY CATALOGUE</p><h3 id="entity-types-heading">Entity categories</h3></div><span class="help-badge">Programme-owned</span></div>
-      <p class="field-help section-intro">Categories describe the kinds of entities this programme recognizes, such as a municipal park, nature reserve, or trail. Category codes are stable identifiers used by imports, awards, and historical activity; they cannot be renamed after creation.</p>
+      <div class="section-heading"><div><p class="eyebrow">ENTITY CATALOGUE</p><h3 id="entity-types-heading">Entity category assignments</h3></div><span class="help-badge">Shared master data</span></div>
+      <p class="field-help section-intro">Assign categories from the shared Master data catalogue to this programme. The same category can be assigned to multiple programmes; editing the category definition itself is done on the Master data page.</p>
       <div id="entity-type-list" class="entity-type-list">${entityTypeListMarkup(entityTypes)}</div>
       <div class="form-grid nested-grid entity-type-editor">
-        <input type="hidden" id="entity-type-original-code" value="">
-        <label>Category code<input id="entity-type-code" placeholder="MUNICIPAL_PARK" required><small class="field-help">Uppercase stable code, for example <code>MUNICIPAL_PARK</code> or <code>TRAIL</code>.</small></label>
-        <label>Display name<input id="entity-type-label" placeholder="Municipal park" required><small class="field-help">The human-readable name shown to administrators and participants.</small></label>
-        <label>Geometry<select id="entity-type-geometry"><option value="POINT">Point</option><option value="LINESTRING">Way / trail (LineString)</option><option value="POLYGON">Polygon</option><option value="MULTIPOLYGON">MultiPolygon</option></select><small class="field-help">The geometry shape accepted for this category.</small></label>
-        <label>Description<input id="entity-type-description" placeholder="What this category represents"><small class="field-help">Optional programme-specific explanation.</small></label>
-        <label class="check-field"><input id="entity-type-active" type="checkbox" checked><span><strong>Available for new entities</strong><small class="field-help">Inactive categories remain visible on historical entities but are not offered for new assignments.</small></span></label>
-        <div class="form-actions"><button type="button" class="secondary" id="entity-type-reset">New category</button><button type="button" class="primary" id="entity-type-save">Add category</button></div>
+        <label class="wide">Available shared category<select id="entity-type-available">${programmeEntityTypeOptions(entityTypes)}</select><small class="field-help">Choose a category already defined in Master data, then assign it to this programme.</small></label>
+        <div class="form-actions"><button type="button" class="secondary" id="entity-type-reset">Clear selection</button><button type="button" class="primary" id="entity-type-save">Assign category</button></div>
       </div>
-      <details class="help-box"><summary>Advanced JSON view</summary><p>The form above is the recommended way to manage categories. This JSON remains available for compatibility and programme-specific fields.</p><textarea id="programme-entities" required aria-label="Entity types JSON">${esc(JSON.stringify(entityTypes, null, 2))}</textarea></details>
+      <details class="help-box"><summary>Advanced JSON view</summary><p>This is the current assignment snapshot used for compatibility with programme creation and update payloads. Manage shared definitions in Master data.</p><textarea id="programme-entities" aria-label="Assigned entity types JSON">${esc(JSON.stringify(entityTypes, null, 2))}</textarea></details>
     </section>
 
     <section class="form-section wide" aria-labelledby="theme-heading">
@@ -75,7 +76,7 @@ function programmeForm(p = {}) {
     <div class="form-actions wide"><button class="primary" type="submit">${p.slug ? 'Save programme' : 'Create programme'}</button>${p.slug ? '<button type="button" class="danger-outline" id="archive-programme">Archive programme</button>' : ''}</div>
   </form>`;
 }
-async function renderProgrammes() { const view = $('programmes-view'); view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">CONFIGURATION</p><h1>Programmes</h1><p class="muted">Each programme owns its own rules, entity types, themes and policy versions.</p></div><button class="primary" id="new-programme">New programme</button></div><div class="split-layout"><article class="panel"><div class="panel-heading"><h2>Configured programmes</h2></div><div id="programme-list" class="table-list"></div></article><article class="panel" id="programme-editor"><div class="panel-heading"><h2>Select a programme</h2></div><p class="muted empty">Choose a programme to edit its configuration, or create a new one.</p></article></div>`; $('new-programme').onclick = () => { $('programme-editor').innerHTML = `<div class="panel-heading"><h2>New programme</h2></div>${programmeForm()}`; bindProgrammeForm(); }; $('programme-list').innerHTML = state.programmes.map(p => `<button class="table-row" data-programme="${esc(p.slug)}"><span><strong>${esc(p.name)}</strong><small>${esc(p.slug)} · policy v${esc(p.policyVersion || 1)}</small></span><span class="status-pill ${p.status === 'ACTIVE' ? 'approved' : 'muted-pill'}">${esc(p.status)}</span></button>`).join(''); document.querySelectorAll('[data-programme]').forEach(b => b.onclick = () => editProgramme(b.dataset.programme)); }
+async function renderProgrammes() { try { await loadEntityTypeCatalogue(); } catch (error) { notify(`Unable to load shared category catalogue: ${error.message}`, 'error'); } const view = $('programmes-view'); view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">CONFIGURATION</p><h1>Programmes</h1><p class="muted">Each programme owns its rules, category assignments, themes and policy versions.</p></div><button class="primary" id="new-programme">New programme</button></div><div class="split-layout"><article class="panel"><div class="panel-heading"><h2>Configured programmes</h2></div><div id="programme-list" class="table-list"></div></article><article class="panel" id="programme-editor"><div class="panel-heading"><h2>Select a programme</h2></div><p class="muted empty">Choose a programme to edit its configuration, or create a new one.</p></article></div>`; $('new-programme').onclick = () => { $('programme-editor').innerHTML = `<div class="panel-heading"><h2>New programme</h2></div>${programmeForm()}`; bindProgrammeForm(); }; $('programme-list').innerHTML = state.programmes.map(p => `<button class="table-row" data-programme="${esc(p.slug)}"><span><strong>${esc(p.name)}</strong><small>${esc(p.slug)} · policy v${esc(p.policyVersion || 1)}</small></span><span class="status-pill ${p.status === 'ACTIVE' ? 'approved' : 'muted-pill'}">${esc(p.status)}</span></button>`).join(''); document.querySelectorAll('[data-programme]').forEach(b => b.onclick = () => editProgramme(b.dataset.programme)); }
 async function editProgramme(slug) { const p = state.programmes.find(x => x.slug === slug) || await api(`/v1/programmes/${encodeURIComponent(slug)}`); $('programme-editor').innerHTML = `<div class="panel-heading"><div><p class="eyebrow">PROGRAMME EDITOR</p><h2>${esc(p.name)}</h2></div><span class="status-pill approved">POLICY V${esc(p.policyVersion || 1)}</span></div>${programmeForm(p)}`; bindProgrammeForm(); }
 function bindProgrammeForm() {
   const validityMode = $('rule-validity-mode');
@@ -123,56 +124,44 @@ function bindEntityTypeManager() {
   const render = () => {
     jsonField.value = JSON.stringify(entityTypes, null, 2);
     list.innerHTML = entityTypeListMarkup(entityTypes);
-    list.querySelectorAll('[data-edit-entity-type]').forEach(button => {
-      button.onclick = () => {
-        const item = entityTypes.find(entry => entry.code === button.dataset.editEntityType);
-        if (!item) return;
-        $('entity-type-original-code').value = item.code;
-        $('entity-type-code').value = item.code;
-        $('entity-type-code').disabled = true;
-        $('entity-type-label').value = item.label || '';
-        $('entity-type-geometry').value = item.geometry || 'MULTIPOLYGON';
-        $('entity-type-description').value = item.description || '';
-        $('entity-type-active').checked = item.active !== false;
-        $('entity-type-save').textContent = 'Save category';
+    $('entity-type-available').innerHTML = programmeEntityTypeOptions(entityTypes);
+    list.querySelectorAll('[data-remove-entity-type]').forEach(button => {
+      button.onclick = async () => {
+        const code = button.dataset.removeEntityType;
+        if (programmeSlug) {
+          try {
+            const response = await api(`/v1/programmes/${encodeURIComponent(programmeSlug)}/entity-types/unassign`, {method:'POST', body:JSON.stringify({code}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+            entityTypes = response.items || [];
+            const programme = state.programmes.find(item => item.slug === programmeSlug);
+            if (programme) programme.entityTypes = cloneJson(entityTypes);
+            notify('Category unassigned', 'success');
+          } catch (error) { return notify(error.message, 'error'); }
+        } else {
+          entityTypes = entityTypes.filter(item => item.code !== code);
+        }
+        render();
       };
     });
   };
-  const reset = () => {
-    $('entity-type-original-code').value = '';
-    $('entity-type-code').value = '';
-    $('entity-type-code').disabled = false;
-    $('entity-type-label').value = '';
-    $('entity-type-geometry').value = 'MULTIPOLYGON';
-    $('entity-type-description').value = '';
-    $('entity-type-active').checked = true;
-    $('entity-type-save').textContent = 'Add category';
-  };
-  $('entity-type-reset').onclick = reset;
+  $('entity-type-reset').onclick = () => { $('entity-type-available').value = ''; };
   $('entity-type-save').onclick = async () => {
-    const code = $('entity-type-code').value.trim().toUpperCase();
-    const originalCode = $('entity-type-original-code').value.trim().toUpperCase();
-    const label = $('entity-type-label').value.trim();
-    if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return notify('Category code must use uppercase letters, numbers, and underscores.', 'error');
-    if (!label) return notify('Enter a display name for the category.', 'error');
-    const record = {code, originalCode: originalCode || code, label, geometry:$('entity-type-geometry').value, description:$('entity-type-description').value.trim(), active:$('entity-type-active').checked};
-    const existingIndex = entityTypes.findIndex(item => item.code === (originalCode || code));
-    if (!originalCode && entityTypes.some(item => item.code === code)) return notify('That category code already exists.', 'error');
+    const code = $('entity-type-available').value;
+    if (!code) return notify('Select a shared category first.', 'error');
+    const record = state.entityTypeCatalogue.find(item => item.code === code);
+    if (!record) return notify('The selected category is no longer available. Refresh the catalogue.', 'error');
     if (programmeSlug) {
       try {
-        const response = await api(`/v1/programmes/${encodeURIComponent(programmeSlug)}/entity-types`, {method:'POST', body:JSON.stringify(record), headers:{'Idempotency-Key':crypto.randomUUID()}});
+        const response = await api(`/v1/programmes/${encodeURIComponent(programmeSlug)}/entity-types/assign`, {method:'POST', body:JSON.stringify({code}), headers:{'Idempotency-Key':crypto.randomUUID()}});
         entityTypes = response.items || entityTypes;
         const programme = state.programmes.find(item => item.slug === programmeSlug);
         if (programme) programme.entityTypes = cloneJson(entityTypes);
-        notify('Category saved', 'success');
+        notify('Category assigned', 'success');
       } catch (error) { return notify(error.message, 'error'); }
-    } else if (existingIndex >= 0) {
-      entityTypes[existingIndex] = {...entityTypes[existingIndex], ...record};
     } else {
-      entityTypes.push(record);
+      entityTypes.push(cloneJson(record));
     }
     render();
-    reset();
+    $('entity-type-available').value = '';
   };
   render();
 }
