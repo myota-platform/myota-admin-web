@@ -494,6 +494,8 @@ async function loadGeoReview({preserveSelection = true, force = false} = {}) {
 
 function renderGeoDrawPanel() {
   const panel = $('geo-draw-panel');
+  const toggle = $('geo-draw-toggle');
+  if (toggle) toggle.textContent = state.geoDrawingActive ? 'Close candidate form' : 'New candidate';
   if (!panel) return;
   if (!state.geoDrawingActive) { panel.hidden = true; return; }
   const hasGeometry = Boolean(geoLeafletDrawingLayer);
@@ -508,6 +510,7 @@ function renderGeoDrawPanel() {
 
 function startGeoDrawing() {
   if (!geoLeafletMap) return;
+  if (!geoLeafletMap.pm?.enableDraw) return notify('The map drawing controls are unavailable. Refresh the page and try again.', 'error');
   geoLeafletDrawingLayer?.remove();
   geoLeafletDrawingLayer = null;
   state.geoDrawingActiveNow = true;
@@ -551,7 +554,13 @@ function bindGeoLeafletWorkspace() {
   $('geo-programme').onchange = () => { state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); };
   $('geo-status').onchange = () => loadGeoReview({preserveSelection:true, force:true});
   document.querySelectorAll('[data-geo-layer]').forEach(input => input.onchange = renderGeoLeafletLayers);
-  $('geo-draw-toggle').onclick = () => { state.geoDrawingActive = !state.geoDrawingActive; if (!state.geoDrawingActive) stopGeoDrawing(); renderGeoDrawPanel(); };
+  $('geo-draw-toggle').onclick = () => {
+    if (state.geoDrawingActive) return stopGeoDrawing();
+    state.geoDrawingActive = true;
+    state.geoDrawingDraft = {};
+    renderGeoDrawPanel();
+    startGeoDrawing();
+  };
 }
 
 renderGeoReview = async function() {
