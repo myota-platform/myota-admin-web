@@ -32,7 +32,12 @@ history. Rejected entities also expose a permanent delete action to global or
 GIS administrators. Deletion removes the entity, related conflation records,
 and its audit record, and cannot be undone.
 
-Use **New candidate** to choose either a polygon area or a point location. Leaflet-Geoman closes polygons when the first vertex is selected again (and also offers its normal finish control). For point entities, click once on the map. Add the name, programme entity type, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The API validates geometry, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
+Use **New candidate** to choose a polygon area, way/trail, or point location. Leaflet-Geoman closes polygons when the first vertex is selected again (and also offers its normal finish control). For point entities, click once on the map. Add the name, select one or more shared entity categories from the database-backed multi-select, jurisdiction, and optional evidence URI, then submit it as a `CANDIDATE`. The first category is retained as the compatibility primary category; the complete list is persisted by the geodata service. Programme assignment is optional and remains a separate eligibility decision. The API validates geometry, coordinate ranges, CRS, feature size, and attachment metadata before accepting it.
+
+The category list is never hardcoded in the browser. It is loaded from the
+shared Master data catalogue. The same multi-select is available when editing
+an existing entity, and category filters match entities containing any
+selected category.
 
 The service-side source manifests, refresh schedules, conflation decisions, disappearance policies, QGIS staging roles, and spatial APIs are documented in the platform repository’s [geodata production pipeline](https://github.com/myota-platform/myota-platform/blob/main/docs/geodata-production-pipeline.md).
 
