@@ -1,9 +1,51 @@
 # Programme configuration guide
 
 The Programme Editor is designed so programme owners can configure their own
-policy without inheriting rules from another programme. The common controls
-cover minimum activation QSOs, minimum hunter QSOs, activation validity,
-public-access requirements, overlap handling, and theme colors.
+policy without inheriting rules from another programme. The current common
+controls cover minimum activation QSOs, minimum hunter QSOs, activation
+validity, public-access requirements, overlap handling, shared category
+assignments, and theme colors.
+
+This is an initial configuration slice, not yet a complete programme control
+plane. The authoritative audit of missing configuration is in
+[`myota-docs/docs/programme-configuration-gap-analysis.md`](https://github.com/myota-platform/myota-docs/blob/main/docs/programme-configuration-gap-analysis.md).
+
+## Current coverage and remaining gaps
+
+Already available in the editor or adjacent administration flows:
+
+- programme name, slug, description, archive state, common QSOs/validity
+  rules, overlap flag, and primary/accent colors;
+- shared entity-category assignments, including multiple geometry types per
+  category and categories reused by several programmes;
+- policy and award draft workflow with explicit review/publication and
+  effective dates;
+- localized content drafts, fallback field, publication workflow, and
+  coverage reporting; and
+- activity-owned award definitions and identity-owned role/callsign/OIDC
+  primitives.
+
+Still missing from Programme Management:
+
+- programme owner/contact/legal metadata and a draft → review → published →
+  suspended/retired lifecycle with immutable configuration versions;
+- a programme-owned locale catalogue, default locale, ordered fallback chain,
+  required content keys, and translation import/export;
+- jurisdiction hierarchy/boundaries and programme + jurisdiction + category
+  approver-scope management;
+- schema-driven forms for activation, QSO, evidence, callsign, geodata
+  eligibility, moderation, overlap, privacy, and public-output policies;
+- policy validation, version comparison, historical snapshots, and a dry-run
+  rule simulator;
+- editing/testing the existing per-programme OIDC mapping and its claims,
+  domains, and account-linking policy; and
+- programme notification, privacy, leaderboard/history, statistics, and
+  award-linkage defaults.
+
+Concrete award definitions, artwork, signatures, issuance, and certificates
+remain owned by `myota-activity-service`; geodata imports remain deliberately
+programme-independent. Programme configuration only links to those resources
+and defines the programme's acceptance and execution policy.
 
 ## Entity categories (JSON compatibility field)
 
