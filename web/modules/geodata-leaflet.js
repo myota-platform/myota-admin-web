@@ -20,6 +20,10 @@ const GEO_TILE_URL = window.MYOTA_TILE_URL || 'https://tile.openstreetmap.org/{z
 const GEO_DEFAULT_CENTER = [37.395, -5.995];
 const GEO_DEFAULT_ZOOM = 12;
 const GEO_STATUS_ORDER = ['CANDIDATE', 'PROPOSED', 'APPROVED', 'RETIRED', 'REJECTED'];
+let geoReviewPage = 1;
+let geoReviewPageSize = 25;
+let geoReviewTotal = 0;
+let geoReviewLocationOptions = [];
 function geoIsGlobalAdmin() { try { const payload = JSON.parse(atob(token().split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return (payload.scp || []).includes('*') || (payload.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } catch (_) { return (state.account?.scopes || []).includes('*') || (state.account?.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } }
 
 function geoLeafletStatusStyle(status, selected = false) {
@@ -112,7 +116,8 @@ function ensureGeoLeafletMap() {
     keepBuffer:1,
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>'
   }).addTo(geoLeafletMap);
-  geoLeafletMap.on('moveend zoomend', geoLeafletScheduleViewportReload);
+  // Panning and zooming are map-only interactions. The filtered, paged queue
+  // must remain stable while a reviewer inspects the current result set.
   geoLeafletMap.on('pm:create', event => {
     if (!state.geoDrawingActive) {
       event.layer.remove();
@@ -145,8 +150,43 @@ function geoLeafletCenterOnEntity(entity) {
 function renderGeoQueue() {
   const list = $('geo-entity-list');
   if (!list) return;
-  list.innerHTML = state.geoEntities.map(entity => `<button class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(entity.entityType)} · ${esc(entity.provenance?.adapter || entity.provenance?.source?.name || 'manual')}</small></span><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></button>`).join('') || '<p class="muted empty">No entities are inside the visible map area.</p>';
+  list.innerHTML = state.geoEntities.map(entity => `<button class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(entity.entityType)} · ${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(geoLocationValue(entity, 'city') || geoLocationValue(entity, 'municipality') || 'Location unavailable')}</small></span><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></button>`).join('') || '<p class="muted empty">No entities match the selected filters.</p>';
   list.querySelectorAll('[data-select-geo]').forEach(button => { button.onclick = () => selectGeoEntity(button.dataset.selectGeo); });
+  const count = $('geo-count');
+  if (count) count.textContent = `${geoReviewTotal} matching ${geoReviewTotal === 1 ? 'entity' : 'entities'}`;
+  const pageLabel = $('geo-page-label');
+  const pageCount = Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize));
+  if (pageLabel) pageLabel.textContent = `Page ${geoReviewPage} of ${pageCount}`;
+  if ($('geo-page-prev')) $('geo-page-prev').disabled = geoReviewPage <= 1;
+  if ($('geo-page-next')) $('geo-page-next').disabled = geoReviewPage >= pageCount;
+}
+
+function geoFilterLocationValues(field) {
+  const values = new Map();
+  const add = value => { const text = String(value || '').trim(); if (text) values.set(text.toLowerCase(), text); };
+  if (field === 'continent') geoReviewLocationOptions.forEach(item => add(item.name));
+  if (field === 'country') geoReviewLocationOptions.flatMap(item => item.countries || []).forEach(item => add(item.name));
+  if (field === 'region') geoReviewLocationOptions.flatMap(item => (item.countries || []).flatMap(country => country.subdivisions || [])).forEach(item => add(item.name));
+  if (field === 'province') geoReviewLocationOptions.flatMap(item => (item.countries || []).flatMap(country => (country.subdivisions || []).flatMap(region => region.provinces || []))).forEach(item => add(item.name));
+  return [...values.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function renderGeoFilterOptions() {
+  ['continent', 'country', 'region', 'province'].forEach(field => {
+    const list = $(`geo-filter-${field}-options`);
+    if (list) list.innerHTML = geoFilterLocationValues(field).map(value => `<option value="${esc(value)}"></option>`).join('');
+  });
+}
+
+function geoFilterParams() {
+  const query = new URLSearchParams({page: String(geoReviewPage), pageSize: String(geoReviewPageSize)});
+  const programme = $('geo-programme')?.value;
+  if (programme) query.set('programme', programme);
+  const statuses = [...document.querySelectorAll('[data-geo-filter-status]:checked')].map(input => input.value);
+  if (statuses.length && statuses.length < GEO_STATUS_ORDER.length) statuses.forEach(status => query.append('status', status));
+  const fields = [['entity-type', 'entityType'], ['continent', 'continent'], ['country', 'country'], ['region', 'region'], ['province', 'province'], ['city', 'city']];
+  fields.forEach(([control, queryField]) => { const value = $(`geo-filter-${control}`)?.value?.trim(); if (value) query.set(queryField, value); });
+  return query;
 }
 
 function geoAuditMarkup(audit) {
@@ -464,21 +504,17 @@ async function loadGeoReview({preserveSelection = true, force = false} = {}) {
   if (!geoLeafletMap) return;
   if (geoLeafletEditMode && !force) return;
   const requestId = ++geoLeafletLoadSequence;
-  const bounds = geoLeafletMap.getBounds();
-  const query = new URLSearchParams({pageSize:'100', minLon:String(bounds.getWest()), minLat:String(bounds.getSouth()), maxLon:String(bounds.getEast()), maxLat:String(bounds.getNorth())});
-  if ($('geo-programme')?.value) query.set('programme', $('geo-programme').value);
-  if ($('geo-status')?.value) query.set('status', $('geo-status').value);
+  const query = geoFilterParams();
   try {
     const data = await api(`/v1/geodata/entities?${query}`);
     if (requestId !== geoLeafletLoadSequence || !geoLeafletMap) return;
-    state.geoLoadedViewportKey = geoViewportKey({minLon:bounds.getWest(), minLat:bounds.getSouth(), maxLon:bounds.getEast(), maxLat:bounds.getNorth()});
     const selectedId = preserveSelection ? state.geoSelected?.id : null;
     state.geoEntities = data.items || [];
     state.geoSelected = selectedId ? state.geoEntities.find(entity => entity.id === selectedId) || null : null;
-    $('geo-count').textContent = `${data.total || state.geoEntities.length} entities in the visible map area`;
+    geoReviewTotal = Number(data.total || 0);
     renderGeoQueue();
     renderGeoLeafletLayers();
-    if (!geoLeafletHasFittedInitialData && state.geoEntities.length) {
+    if (state.geoEntities.length && (!geoLeafletHasFittedInitialData || !state.geoSelected)) {
       geoLeafletHasFittedInitialData = true;
       const boundsToFit = L.featureGroup([...geoLeafletEntityLayers.values()].map(entry => entry.group)).getBounds();
       if (boundsToFit.isValid()) geoLeafletMap.fitBounds(boundsToFit, {padding:[40,40], maxZoom:16});
@@ -551,8 +587,31 @@ async function submitGeoDrawingLeaflet() {
 
 function bindGeoLeafletWorkspace() {
   $('geo-refresh').onclick = () => loadGeoReview({preserveSelection:true, force:true});
-  $('geo-programme').onchange = () => { state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); };
-  $('geo-status').onchange = () => loadGeoReview({preserveSelection:true, force:true});
+  $('geo-programme').onchange = () => { state.geoSelected = null; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  $('geo-status').onchange = event => {
+    document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = !event.target.value || input.value === event.target.value; });
+    state.geoSelected = null;
+    geoReviewPage = 1;
+    loadGeoReview({preserveSelection:false, force:true});
+  };
+  $('geo-filter-status-all').onchange = event => {
+    document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = event.target.checked; });
+    geoReviewPage = 1;
+    loadGeoReview({preserveSelection:false, force:true});
+  };
+  document.querySelectorAll('[data-geo-filter-status]').forEach(input => input.onchange = () => {
+    const checked = [...document.querySelectorAll('[data-geo-filter-status]:checked')];
+    if (!checked.length) document.querySelectorAll('[data-geo-filter-status]').forEach(item => { item.checked = true; });
+    const all = document.querySelectorAll('[data-geo-filter-status]:checked').length === GEO_STATUS_ORDER.length;
+    $('geo-filter-status-all').checked = all;
+    $('geo-status').value = all || checked.length !== 1 ? '' : checked[0].value;
+    geoReviewPage = 1;
+    loadGeoReview({preserveSelection:false, force:true});
+  });
+  document.querySelectorAll('[data-geo-filter]').forEach(input => input.onchange = () => { geoReviewPage = 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); });
+  $('geo-page-size').onchange = event => { geoReviewPageSize = Number(event.target.value) || 25; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  $('geo-page-prev').onclick = () => { if (geoReviewPage > 1) { geoReviewPage -= 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
+  $('geo-page-next').onclick = () => { if (geoReviewPage < Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize))) { geoReviewPage += 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
   document.querySelectorAll('[data-geo-layer]').forEach(input => input.onchange = renderGeoLeafletLayers);
   $('geo-draw-toggle').onclick = () => {
     if (state.geoDrawingActive) return stopGeoDrawing();
@@ -565,6 +624,10 @@ function bindGeoLeafletWorkspace() {
 
 renderGeoReview = async function() {
   try { await loadGeoEntityTypeCatalogue(); } catch (error) { state.entityTypeCatalogue = []; notify(`Unable to load shared categories: ${error.message}`, 'error'); }
+  try { geoReviewLocationOptions = (await api('/v1/geodata/location-options')).continents || []; } catch (error) { geoReviewLocationOptions = []; notify(`Location filters unavailable: ${error.message}`, 'error'); }
+  geoReviewPage = 1;
+  geoReviewPageSize = 25;
+  geoReviewTotal = 0;
   geoLeafletLoadSequence += 1;
   clearTimeout(geoLeafletViewportTimer);
   if (geoLeafletMap) { geoLeafletMap.remove(); geoLeafletMap = null; }
@@ -574,7 +637,8 @@ renderGeoReview = async function() {
   geoLeafletEditMode = false;
   geoLeafletDrawingLayer = null;
   const view = $('geodata-view');
-  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">POSTGIS WORKFLOW</p><h1>Geodata review</h1><p class="muted">Review source-backed entities inside the visible map area. Select an item to center the map; enter edit mode only when geometry needs changing.</p></div><button class="secondary" id="geo-refresh" type="button">Refresh map</button></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="secondary" id="geo-import-toggle" type="button">Import GeoJSON</button><button class="primary" id="geo-draw-toggle" type="button">New candidate</button></div><div id="geo-import" class="panel geo-import-panel" hidden><div class="panel-heading"><h2>Import GeoJSON</h2><span class="muted">Imported features enter as candidates and retain source metadata.</span></div><form id="geo-import-form" class="form-grid"><label>Programme<select id="import-programme">${state.programmes.map(p => `<option value="${esc(p.slug)}">${esc(p.name)}</option>`).join('')}</select></label><label>Source name<input id="import-source" value="Manual administration import" required></label><label class="wide">GeoJSON feature collection<textarea id="import-features" required>{"type":"FeatureCollection","features":[]}</textarea></label><div class="form-actions wide"><button class="primary" type="submit">Queue import</button></div></form></div><div class="geo-layout"><aside class="panel geo-sidebar"><div class="panel-heading"><div><p class="eyebrow">VISIBLE QUEUE</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div><div class="layer-filter"><strong>Layers</strong><label class="layer-toggle candidate"><input data-geo-layer id="layer-candidate" type="checkbox" checked> Candidate</label><label class="layer-toggle proposed"><input data-geo-layer id="layer-proposed" type="checkbox" checked> Proposed</label><label class="layer-toggle approved"><input data-geo-layer id="layer-approved" type="checkbox" checked> Approved</label><label class="layer-toggle retired"><input data-geo-layer id="layer-retired" type="checkbox" checked> Retired</label><label class="layer-toggle rejected"><input data-geo-layer id="layer-rejected" type="checkbox" checked> Rejected</label></div><p class="map-binding-note">The queue follows the current map bounding box. Panning or zooming refreshes it.</p><div id="geo-entity-list" class="geo-entity-list"></div></aside><section class="geo-center"><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap geodata review map"></div><article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">ENTITY INSPECTOR</p><h2>Select an entity</h2><p class="muted">Choose an item from the queue to begin review.</p></div></article></section></div>`;
+  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">POSTGIS WORKFLOW</p><h1>Geodata review</h1><p class="muted">Filter the platform-wide entity catalogue, select an item to centre the map, and review its source, geometry, and lifecycle below the map.</p></div><button class="secondary" id="geo-refresh" type="button">Refresh list</button></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes and unassigned</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-draw-toggle" type="button">New candidate</button></div><section class="panel geo-review-filters"><div class="panel-heading"><div><p class="eyebrow">CATALOGUE FILTERS</p><h2>Find entities</h2><p class="field-help">Filters apply to the paged list below. Programme is optional: “All programmes and unassigned” also includes platform-wide entities.</p></div></div><div class="form-grid geo-filter-grid"><label>Entity type<select id="geo-filter-entity-type" data-geo-filter><option value="">All entity types</option>${state.entityTypeCatalogue.map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)}</option>`).join('')}</select></label><label>Continent<input id="geo-filter-continent" data-geo-filter list="geo-filter-continent-options" placeholder="All continents"><datalist id="geo-filter-continent-options"></datalist></label><label>Country<input id="geo-filter-country" data-geo-filter list="geo-filter-country-options" placeholder="All countries"><datalist id="geo-filter-country-options"></datalist></label><label>Region / subdivision<input id="geo-filter-region" data-geo-filter list="geo-filter-region-options" placeholder="All regions"><datalist id="geo-filter-region-options"></datalist></label><label>Province<input id="geo-filter-province" data-geo-filter list="geo-filter-province-options" placeholder="All provinces"><datalist id="geo-filter-province-options"></datalist></label><label>City / municipality<input id="geo-filter-city" data-geo-filter placeholder="All cities and municipalities"></label></div><div class="geo-status-filter"><strong>Entity status</strong><label><input id="geo-filter-status-all" type="checkbox" checked> All</label>${GEO_STATUS_ORDER.map(status => `<label><input data-geo-filter-status value="${status}" type="checkbox" checked> ${status[0] + status.slice(1).toLowerCase()}</label>`).join('')}</div></section><section class="panel geo-results"><div class="panel-heading"><div><p class="eyebrow">FILTERED RESULTS</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div><div id="geo-entity-list" class="geo-entity-list"></div><div class="geo-pagination"><label>Show<select id="geo-page-size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select></label><span id="geo-page-label" class="muted">Page 1</span><button class="secondary" id="geo-page-prev" type="button">Previous</button><button class="secondary" id="geo-page-next" type="button">Next</button></div></section><article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article><section class="panel geo-map-panel"><div class="panel-heading"><div><p class="eyebrow">MAP</p><h2>Selected result locations</h2><p class="field-help">The map shows the current page of filtered results. Selecting a list item centres it here; panning and zooming do not change the list.</p></div></div><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap geodata review map"></div></section><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">ENTITY INSPECTOR</p><h2>Select an entity</h2><p class="muted">Choose an item from the results to review its source, geometry, lifecycle, and audit history.</p></div></article>`;
+  renderGeoFilterOptions();
   $('geo-import-toggle')?.remove(); $('geo-import')?.remove();
   bindGeoLeafletWorkspace();
   const map = ensureGeoLeafletMap();
