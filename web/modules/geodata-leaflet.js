@@ -530,8 +530,8 @@ function stopGeoDrawing() {
 
 async function submitGeoDrawingLeaflet() {
   const layer = geoLeafletDrawingLayer;
-  const programmeSlug = $('geo-programme')?.value || state.currentProgramme || state.programmes[0]?.slug;
-  if (!layer || !programmeSlug) return notify('Draw a geometry and select a programme before submitting.', 'error');
+  const programmeSlug = $('geo-programme')?.value || null;
+  if (!layer) return notify('Draw a geometry before submitting.', 'error');
   const draft = state.geoDrawingDraft || {};
   if (!draft.name?.trim()) return notify('Enter a name for the candidate.', 'error');
   const feature = layer.toGeoJSON();
