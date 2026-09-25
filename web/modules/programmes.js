@@ -1,3 +1,7 @@
+function entityTypeListMarkup(entityTypes) {
+  return entityTypes.map(item => `<div class="entity-type-row"><div><strong>${esc(item.label || item.code)}</strong><small><code>${esc(item.code)}</code> · ${esc(item.geometry || 'MULTIPOLYGON')} · ${item.active === false ? 'Inactive' : 'Active'}</small>${item.description ? `<p class="field-help">${esc(item.description)}</p>` : ''}</div><button type="button" class="secondary" data-edit-entity-type="${esc(item.code)}">Edit</button></div>`).join('') || '<p class="muted empty">No categories configured yet.</p>';
+}
+
 function programmeForm(p = {}) {
   const rules = p.rules || {};
   const minimumQsos = rules.minimumQsos || {};
@@ -48,10 +52,19 @@ function programmeForm(p = {}) {
     </section>
 
     <section class="form-section wide" aria-labelledby="entity-types-heading">
-      <div class="section-heading"><div><p class="eyebrow">ENTITY CATALOGUE</p><h3 id="entity-types-heading">Entity types (JSON)</h3></div><span class="help-badge neutral">Advanced format</span></div>
-      <p class="field-help section-intro">Entity types describe the kinds of places this programme recognizes, such as a municipal park or nature reserve. This field remains JSON for now so programme owners can define their own catalogue without a platform-wide fixed list.</p>
-      <details class="help-box"><summary>How should this JSON work?</summary><p>Use an array of objects. Each object needs a stable <code>code</code>, a human-readable <code>label</code>, and a PostGIS <code>geometry</code> type. The code is used by imports and historical records, so do not rename it after publication.</p><pre>${esc(JSON.stringify([{code:'MUNICIPAL_PARK',label:'Municipal park',geometry:'MULTIPOLYGON'}], null, 2))}</pre><p>You may add programme-specific metadata later, but keep the required fields consistent. Entity-type meaning and eligibility belong to the programme.</p></details>
-      <textarea id="programme-entities" required aria-label="Entity types JSON">${esc(JSON.stringify(entityTypes, null, 2))}</textarea>
+      <div class="section-heading"><div><p class="eyebrow">ENTITY CATALOGUE</p><h3 id="entity-types-heading">Entity categories</h3></div><span class="help-badge">Programme-owned</span></div>
+      <p class="field-help section-intro">Categories describe the kinds of entities this programme recognizes, such as a municipal park, nature reserve, or trail. Category codes are stable identifiers used by imports, awards, and historical activity; they cannot be renamed after creation.</p>
+      <div id="entity-type-list" class="entity-type-list">${entityTypeListMarkup(entityTypes)}</div>
+      <div class="form-grid nested-grid entity-type-editor">
+        <input type="hidden" id="entity-type-original-code" value="">
+        <label>Category code<input id="entity-type-code" placeholder="MUNICIPAL_PARK" required><small class="field-help">Uppercase stable code, for example <code>MUNICIPAL_PARK</code> or <code>TRAIL</code>.</small></label>
+        <label>Display name<input id="entity-type-label" placeholder="Municipal park" required><small class="field-help">The human-readable name shown to administrators and participants.</small></label>
+        <label>Geometry<select id="entity-type-geometry"><option value="POINT">Point</option><option value="LINESTRING">Way / trail (LineString)</option><option value="POLYGON">Polygon</option><option value="MULTIPOLYGON">MultiPolygon</option></select><small class="field-help">The geometry shape accepted for this category.</small></label>
+        <label>Description<input id="entity-type-description" placeholder="What this category represents"><small class="field-help">Optional programme-specific explanation.</small></label>
+        <label class="check-field"><input id="entity-type-active" type="checkbox" checked><span><strong>Available for new entities</strong><small class="field-help">Inactive categories remain visible on historical entities but are not offered for new assignments.</small></span></label>
+        <div class="form-actions"><button type="button" class="secondary" id="entity-type-reset">New category</button><button type="button" class="primary" id="entity-type-save">Add category</button></div>
+      </div>
+      <details class="help-box"><summary>Advanced JSON view</summary><p>The form above is the recommended way to manage categories. This JSON remains available for compatibility and programme-specific fields.</p><textarea id="programme-entities" required aria-label="Entity types JSON">${esc(JSON.stringify(entityTypes, null, 2))}</textarea></details>
     </section>
 
     <section class="form-section wide" aria-labelledby="theme-heading">
@@ -77,6 +90,7 @@ function bindProgrammeForm() {
   };
   validityMode.onchange = syncValidityFields;
   syncValidityFields();
+  bindEntityTypeManager();
   $('programme-form').onsubmit = async (event) => {
     event.preventDefault();
     try {
@@ -97,4 +111,68 @@ function bindProgrammeForm() {
     } catch(error) { notify(error.message,'error'); }
   };
   if ($('archive-programme')) $('archive-programme').onclick = async () => { const slug=$('programme-original').value; if (!confirm(`Archive ${slug}?`)) return; try { await api(`/v1/programmes/${encodeURIComponent(slug)}/archive`, {method:'POST',body:'{}',headers:{'Idempotency-Key':crypto.randomUUID()}}); notify('Programme archived','success'); await loadProgrammes(); renderProgrammes(); } catch(error) { notify(error.message,'error'); } };
+}
+
+function bindEntityTypeManager() {
+  const jsonField = $('programme-entities');
+  const list = $('entity-type-list');
+  if (!jsonField || !list) return;
+  let entityTypes;
+  try { entityTypes = JSON.parse(jsonField.value || '[]'); } catch (_) { entityTypes = []; }
+  const programmeSlug = $('programme-original').value;
+  const render = () => {
+    jsonField.value = JSON.stringify(entityTypes, null, 2);
+    list.innerHTML = entityTypeListMarkup(entityTypes);
+    list.querySelectorAll('[data-edit-entity-type]').forEach(button => {
+      button.onclick = () => {
+        const item = entityTypes.find(entry => entry.code === button.dataset.editEntityType);
+        if (!item) return;
+        $('entity-type-original-code').value = item.code;
+        $('entity-type-code').value = item.code;
+        $('entity-type-code').disabled = true;
+        $('entity-type-label').value = item.label || '';
+        $('entity-type-geometry').value = item.geometry || 'MULTIPOLYGON';
+        $('entity-type-description').value = item.description || '';
+        $('entity-type-active').checked = item.active !== false;
+        $('entity-type-save').textContent = 'Save category';
+      };
+    });
+  };
+  const reset = () => {
+    $('entity-type-original-code').value = '';
+    $('entity-type-code').value = '';
+    $('entity-type-code').disabled = false;
+    $('entity-type-label').value = '';
+    $('entity-type-geometry').value = 'MULTIPOLYGON';
+    $('entity-type-description').value = '';
+    $('entity-type-active').checked = true;
+    $('entity-type-save').textContent = 'Add category';
+  };
+  $('entity-type-reset').onclick = reset;
+  $('entity-type-save').onclick = async () => {
+    const code = $('entity-type-code').value.trim().toUpperCase();
+    const originalCode = $('entity-type-original-code').value.trim().toUpperCase();
+    const label = $('entity-type-label').value.trim();
+    if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return notify('Category code must use uppercase letters, numbers, and underscores.', 'error');
+    if (!label) return notify('Enter a display name for the category.', 'error');
+    const record = {code, originalCode: originalCode || code, label, geometry:$('entity-type-geometry').value, description:$('entity-type-description').value.trim(), active:$('entity-type-active').checked};
+    const existingIndex = entityTypes.findIndex(item => item.code === (originalCode || code));
+    if (!originalCode && entityTypes.some(item => item.code === code)) return notify('That category code already exists.', 'error');
+    if (programmeSlug) {
+      try {
+        const response = await api(`/v1/programmes/${encodeURIComponent(programmeSlug)}/entity-types`, {method:'POST', body:JSON.stringify(record), headers:{'Idempotency-Key':crypto.randomUUID()}});
+        entityTypes = response.items || entityTypes;
+        const programme = state.programmes.find(item => item.slug === programmeSlug);
+        if (programme) programme.entityTypes = cloneJson(entityTypes);
+        notify('Category saved', 'success');
+      } catch (error) { return notify(error.message, 'error'); }
+    } else if (existingIndex >= 0) {
+      entityTypes[existingIndex] = {...entityTypes[existingIndex], ...record};
+    } else {
+      entityTypes.push(record);
+    }
+    render();
+    reset();
+  };
+  render();
 }
