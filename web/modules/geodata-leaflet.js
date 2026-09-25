@@ -39,7 +39,13 @@ function geoLeafletStatusStyle(status, selected = false) {
 }
 
 function geoLeafletFeature(entity) {
-  return {type:'Feature', id:entity.id, properties:{name:entity.name, status:entity.status, entityType:entity.entityType}, geometry:entity.geometry};
+  return {type:'Feature', id:entity.id, properties:{name:entity.name, status:entity.status, entityType:entity.entityType, entityTypes:geoEntityCodes(entity)}, geometry:entity.geometry};
+}
+
+function geoEntityCodes(entity) {
+  const raw = entity?.entityTypes || entity?.entityTypeCodes || entity?.entityType || [];
+  const values = Array.isArray(raw) ? raw : [raw];
+  return [...new Set(values.map(item => String(item?.code || item || '').trim().toUpperCase()).filter(Boolean))];
 }
 
 function geoLeafletVisible(status) {
@@ -150,7 +156,7 @@ function geoLeafletCenterOnEntity(entity) {
 function renderGeoQueue() {
   const list = $('geo-entity-list');
   if (!list) return;
-  list.innerHTML = state.geoEntities.map(entity => `<button class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(entity.entityType)} · ${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(geoLocationValue(entity, 'city') || geoLocationValue(entity, 'municipality') || 'Location unavailable')}</small></span><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></button>`).join('') || '<p class="muted empty">No entities match the selected filters.</p>';
+  list.innerHTML = state.geoEntities.map(entity => `<button class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(geoEntityCodes(entity).join(', '))} · ${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(geoLocationValue(entity, 'city') || geoLocationValue(entity, 'municipality') || 'Location unavailable')}</small></span><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></button>`).join('') || '<p class="muted empty">No entities match the selected filters.</p>';
   list.querySelectorAll('[data-select-geo]').forEach(button => { button.onclick = () => selectGeoEntity(button.dataset.selectGeo); });
   const count = $('geo-count');
   if (count) count.textContent = `${geoReviewTotal} matching ${geoReviewTotal === 1 ? 'entity' : 'entities'}`;
@@ -202,8 +208,8 @@ function geoAllowedStatuses(entity) {
 
 function geoEntityTypeCatalogue(entity) {
   const configured = state.entityTypeCatalogue || [];
-  const current = entity?.entityType;
-  return configured.filter(item => item.active !== false || item.code === current);
+  const current = new Set(geoEntityCodes(entity));
+  return configured.filter(item => item.active !== false || current.has(item.code));
 }
 
 async function loadGeoEntityTypeCatalogue() {
@@ -352,11 +358,13 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   const editableEntry = geoLeafletEntityLayers.get(entity.id);
   const currentGeometry = editing ? state.geoEditingGeometry : entity.geometry;
   const statuses = geoAllowedStatuses(entity);
-  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entity.entityType)} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
+  const entityCategories = geoEntityCodes(entity);
+  const availableCategories = geoEntityTypeCatalogue(entity);
+  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entityCategories.join(', '))} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
     <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot stays beside the platform geometry. Geometry edits create audit history and never rewrite the original provenance.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(currentGeometry || {}, null, 2))}</pre></div></div></section>
     ${geoLocationSection(entity)}
     <section class="inspector-section entity-name-inspector"><div class="section-heading"><div><h3>Entity name</h3><p class="field-help">Correct the display name when the source contains a spelling, language, or naming error. Name changes are audited and do not alter source provenance.</p></div></div><label class="stacked-field">Name<input id="geo-entity-name" value="${esc(entity.name || '')}" maxlength="240" required></label><label class="stacked-field">Name change note<textarea id="geo-entity-name-note" placeholder="Explain why the name was corrected"></textarea></label><button class="secondary" id="geo-save-entity-name" type="button">Save name</button></section>
-    <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity category</h3><p class="field-help">Categories are shared Master data, not programme-owned. A programme may assign a category for eligibility separately. You can change the category for platform-wide entities as well as programme-assigned entities; every change is audited because rules and awards may use the category code.</p></div></div><div class="status-review-grid"><label>Category<select id="geo-entity-type-select">${geoEntityTypeCatalogue(entity).map(item => `<option value="${esc(item.code)}" ${item.code === entity.entityType ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !geoEntityTypeCatalogue(entity).length ? 'disabled' : ''}>Save category</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the category was changed"></textarea></label>${geoEntityTypeCatalogue(entity).length ? '' : '<p class="field-help">No shared categories are available. Add one in Master data first.</p>'}</section>
+    <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity categories</h3><p class="field-help">Categories are shared Master data, not programme-owned. Select one or more categories. The first selected category remains the primary compatibility category; every change is audited.</p></div></div><div class="status-review-grid"><label>Categories<select id="geo-entity-type-select" class="geo-category-multiselect" multiple size="5">${availableCategories.map(item => `<option value="${esc(item.code)}" ${entityCategories.includes(item.code) ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !availableCategories.length ? 'disabled' : ''}>Save categories</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the categories were changed"></textarea></label>${availableCategories.length ? '' : '<p class="field-help">No shared categories are available. Add one in Master data first.</p>'}</section>
     <section class="inspector-section geometry-inspector"><div class="section-heading"><div><h3>Geometry</h3><p class="field-help">Geometry is read-only until you explicitly enter edit mode. Use the map handles to adjust the selected point, way / trail, or polygon.</p></div>${editing ? '<span class="edit-badge">EDIT MODE</span>' : ''}</div>${editing ? `<label class="stacked-field">Geometry change note<textarea id="geo-geometry-note" placeholder="Explain why the geometry was adjusted"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-geometry" type="button">Save geometry</button><button class="secondary" id="geo-cancel-geometry" type="button">Cancel</button></div>` : `<button class="secondary" id="geo-edit-geometry" type="button" ${entity.status === 'RETIRED' ? 'disabled' : ''}>Edit geometry</button><p class="field-help">Editing handles appear only after selecting this button.</p>`}</section>
     <section class="inspector-section"><div class="section-heading"><div><h3>Review decision</h3><p class="field-help">Record the evidence or reason for a lifecycle decision. Approved entities can only be retired so historical QSOs remain valid.</p></div></div><label class="stacked-field">Review note<textarea id="geo-review-note" placeholder="Record the evidence or reason for this decision"></textarea></label><div class="status-review-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-save-status" type="button" ${statuses.length === 1 ? 'disabled' : ''}>Save status</button></div><p class="field-help">Status changes are recorded in the entity audit history.</p></section>
     <section class="inspector-section"><h3>Audit history</h3><div class="audit-list">${geoAuditMarkup(audit)}</div></section>
@@ -458,11 +466,12 @@ async function saveGeoLeafletStatus() {
 
 async function saveGeoLeafletEntityType() {
   const entity = state.geoSelected;
-  const entityType = $('geo-entity-type-select')?.value;
-  if (!entity || !entityType || entityType === entity.entityType) return;
+  const entityTypes = [...($('geo-entity-type-select')?.selectedOptions || [])].map(option => option.value);
+  if (!entity || !entityTypes.length) return notify('Select at least one entity category.', 'error');
+  if (JSON.stringify(entityTypes) === JSON.stringify(geoEntityCodes(entity))) return;
   try {
-    await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/entity-type`, {method:'POST', body:JSON.stringify({entityType, editorId:state.account.id, note:$('geo-entity-type-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
-    notify('Entity category changed with audit history', 'success');
+    await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/entity-type`, {method:'POST', body:JSON.stringify({entityTypes, editorId:state.account.id, note:$('geo-entity-type-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    notify('Entity categories changed with audit history', 'success');
     await loadGeoReview({preserveSelection:true, force:true});
   } catch (error) { notify(error.message, 'error'); }
 }
@@ -536,9 +545,11 @@ function renderGeoDrawPanel() {
   if (!state.geoDrawingActive) { panel.hidden = true; return; }
   const hasGeometry = Boolean(geoLeafletDrawingLayer);
   panel.hidden = false;
-  panel.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New candidate</h2><p class="field-help">Choose a geometry, start drawing, and click the first polygon point to close it. A way / trail is drawn as a connected line; double-click or finish the line to submit it. New candidates always enter the review queue as CANDIDATE.</p></div><button class="secondary" id="geo-draw-cancel" type="button">Cancel</button></div><div class="form-grid draw-form"><label>Geometry<select id="geo-draw-mode"><option value="POLYGON" ${state.geoDrawingMode === 'POLYGON' ? 'selected' : ''}>Polygon area</option><option value="WAY" ${state.geoDrawingMode === 'WAY' ? 'selected' : ''}>Way / trail</option><option value="POINT" ${state.geoDrawingMode === 'POINT' ? 'selected' : ''}>Point location</option></select><small class="field-help">Use a point for a location, a way for a trail or route, or a polygon for an area.</small></label><label>Name<input id="geo-draw-name" value="${esc(state.geoDrawingDraft?.name || '')}" required></label><label>Entity type<input id="geo-draw-type" value="${esc(state.geoDrawingDraft?.type || 'MUNICIPAL_PARK')}" required></label><label>Jurisdiction<input id="geo-draw-jurisdiction" value="${esc(state.geoDrawingDraft?.jurisdiction || '')}" placeholder="Optional authority or area"></label><label>Attachment URI<input id="geo-draw-attachment" value="${esc(state.geoDrawingDraft?.attachment || '')}" placeholder="Optional evidence URL"></label><div class="form-actions wide"><button class="secondary" id="geo-draw-start" type="button">${hasGeometry ? 'Redraw geometry' : state.geoDrawingActiveNow ? 'Drawing…' : 'Start drawing'}</button><button class="primary" id="geo-draw-submit" type="button" ${hasGeometry ? '' : 'disabled'}>Submit candidate</button></div></div>`;
-  $('geo-draw-mode').onchange = event => { state.geoDrawingMode = event.target.value; if (state.geoDrawingMode === 'WAY' && (!state.geoDrawingDraft?.type || state.geoDrawingDraft.type === 'MUNICIPAL_PARK')) state.geoDrawingDraft = {...(state.geoDrawingDraft || {}), type:'TRAIL'}; geoLeafletDrawingLayer?.remove(); geoLeafletDrawingLayer = null; renderGeoDrawPanel(); };
-  ['name','type','jurisdiction','attachment'].forEach(key => { $(`geo-draw-${key}`)?.addEventListener('input', event => { state.geoDrawingDraft = {...(state.geoDrawingDraft || {}), [key]:event.target.value}; }); });
+  const selectedTypes = state.geoDrawingDraft?.types || (state.geoDrawingDraft?.type ? [state.geoDrawingDraft.type] : ['MUNICIPAL_PARK']);
+  panel.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New candidate</h2><p class="field-help">Choose a geometry and one or more categories, start drawing, and click the first polygon point to close it. New candidates always enter the review queue as CANDIDATE.</p></div><button class="secondary" id="geo-draw-cancel" type="button">Cancel</button></div><div class="form-grid draw-form"><label>Geometry<select id="geo-draw-mode"><option value="POLYGON" ${state.geoDrawingMode === 'POLYGON' ? 'selected' : ''}>Polygon area</option><option value="WAY" ${state.geoDrawingMode === 'WAY' ? 'selected' : ''}>Way / trail</option><option value="POINT" ${state.geoDrawingMode === 'POINT' ? 'selected' : ''}>Point location</option></select><small class="field-help">Use a point for a location, a way for a trail or route, or a polygon for an area.</small></label><label>Name<input id="geo-draw-name" value="${esc(state.geoDrawingDraft?.name || '')}" required></label><label>Entity categories<select id="geo-draw-types" class="geo-category-multiselect" multiple size="5" required">${geoEntityTypeCatalogue({entityTypes:selectedTypes}).map(item => `<option value="${esc(item.code)}" ${selectedTypes.includes(item.code) ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select><small class="field-help">Select one or more shared categories. The first selected category is the primary compatibility category.</small></label><label>Jurisdiction<input id="geo-draw-jurisdiction" value="${esc(state.geoDrawingDraft?.jurisdiction || '')}" placeholder="Optional authority or area"></label><label>Attachment URI<input id="geo-draw-attachment" value="${esc(state.geoDrawingDraft?.attachment || '')}" placeholder="Optional evidence URL"></label><div class="form-actions wide"><button class="secondary" id="geo-draw-start" type="button">${hasGeometry ? 'Redraw geometry' : state.geoDrawingActiveNow ? 'Drawing…' : 'Start drawing'}</button><button class="primary" id="geo-draw-submit" type="button" ${hasGeometry ? '' : 'disabled'}>Submit candidate</button></div></div>`;
+  $('geo-draw-mode').onchange = event => { state.geoDrawingMode = event.target.value; const currentTypes = state.geoDrawingDraft?.types || []; if (state.geoDrawingMode === 'WAY' && (!currentTypes.length || (currentTypes.length === 1 && currentTypes[0] === 'MUNICIPAL_PARK'))) state.geoDrawingDraft = {...(state.geoDrawingDraft || {}), types:['TRAIL']}; geoLeafletDrawingLayer?.remove(); geoLeafletDrawingLayer = null; renderGeoDrawPanel(); };
+  $('geo-draw-types').onchange = event => { state.geoDrawingDraft = {...(state.geoDrawingDraft || {}), types:[...event.target.selectedOptions].map(option => option.value)}; };
+  ['name','jurisdiction','attachment'].forEach(key => { $(`geo-draw-${key}`)?.addEventListener('input', event => { state.geoDrawingDraft = {...(state.geoDrawingDraft || {}), [key]:event.target.value}; }); });
   $('geo-draw-cancel').onclick = stopGeoDrawing;
   $('geo-draw-start').onclick = startGeoDrawing;
   $('geo-draw-submit').onclick = submitGeoDrawingLeaflet;
@@ -573,14 +584,16 @@ async function submitGeoDrawingLeaflet() {
   if (!layer) return notify('Draw a geometry before submitting.', 'error');
   const draft = state.geoDrawingDraft || {};
   if (!draft.name?.trim()) return notify('Enter a name for the candidate.', 'error');
+  const entityTypes = [...new Set((draft.types || (draft.type ? [draft.type] : [])).map(value => String(value).trim().toUpperCase()).filter(Boolean))];
+  if (!entityTypes.length) return notify('Select at least one entity category.', 'error');
   const feature = layer.toGeoJSON();
   const attachmentUri = draft.attachment?.trim();
   const attachments = attachmentUri ? [{name:attachmentUri.split('/').pop() || 'evidence', mediaType:'application/octet-stream', uri:attachmentUri}] : [];
   try {
-    await api('/v1/geodata/proposals/draw', {method:'POST', body:JSON.stringify({programmeSlug, source:{name:'Manual administration proposal', license:'programme-supplied'}, feature:{properties:{name:draft.name.trim(), entityType:draft.type?.trim() || 'MUNICIPAL_PARK', jurisdiction:draft.jurisdiction?.trim() || undefined}, geometry:feature.geometry}, attachments}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    await api('/v1/geodata/proposals/draw', {method:'POST', body:JSON.stringify({programmeSlug, source:{name:'Manual administration proposal', license:'programme-supplied'}, feature:{properties:{name:draft.name.trim(), entityType:entityTypes[0], entityTypes, entityTypeCodes:entityTypes, jurisdiction:draft.jurisdiction?.trim() || undefined}, geometry:feature.geometry}, attachments}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     notify('Candidate proposal submitted', 'success');
     stopGeoDrawing();
-    state.geoDrawingDraft = {};
+    state.geoDrawingDraft = {types:['MUNICIPAL_PARK']};
     await loadGeoReview({preserveSelection:true, force:true});
   } catch (error) { notify(error.message, 'error'); }
 }
