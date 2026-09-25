@@ -158,6 +158,55 @@ function geoAllowedStatuses(entity) {
   return GEO_STATUS_ORDER;
 }
 
+const GEO_LOCATION_FIELDS = [
+  ['continent', 'Continent'], ['continentCode', 'Continent code'],
+  ['country', 'Country'], ['countryCode', 'Country code'],
+  ['region', 'Region / first subdivision'], ['regionCode', 'Subdivision code'],
+  ['province', 'Province'], ['provinceCode', 'Province code'],
+  ['county', 'County / equivalent'], ['countyCode', 'County code'],
+  ['city', 'City'], ['municipality', 'Municipality'],
+];
+
+function geoLocationValue(entity, field) {
+  return entity[field] ?? entity.location?.[field] ?? '';
+}
+
+function geoLocationSection(entity) {
+  const manual = new Set(entity.manualLocationFields || []);
+  const rows = GEO_LOCATION_FIELDS.map(([field, label]) => `<div class="location-value"><span>${esc(label)}</span><strong>${esc(geoLocationValue(entity, field) || 'Not available')}</strong>${manual.has(field) ? '<small class="manual-value">Manual override</small>' : ''}</div>`).join('');
+  return `<section class="inspector-section location-inspector"><div class="section-heading"><div><h3>Location metadata</h3><p class="field-help">Values come from BigDataCloud reverse geocoding unless a field is marked as a manual override. Manual values always take precedence during imports and geometry refreshes.</p></div><span class="help-badge ${manual.size ? '' : 'neutral'}">${manual.size ? `${manual.size} manual` : 'Automatic'}</span></div><div class="location-summary">${rows}</div><button class="secondary" id="geo-edit-location" type="button">Edit location metadata</button></section>`;
+}
+
+function geoLocationEditor(entity) {
+  const manual = new Set(entity.manualLocationFields || []);
+  const fields = GEO_LOCATION_FIELDS.map(([field, label]) => `<label class="location-edit-field"><span>${esc(label)}</span><input data-location-field="${field}" value="${esc(geoLocationValue(entity, field))}" placeholder="Automatic value"><span class="manual-toggle"><input type="checkbox" data-location-manual="${field}" ${manual.has(field) ? 'checked' : ''}> Manual override</span></label>`).join('');
+  return `<div class="section-heading"><div><h3>Edit location metadata</h3><p class="field-help">Check Manual override for values that must remain authoritative. Unchecked fields are refreshed from the entity centroid.</p></div><span class="edit-badge">EDIT MODE</span></div><div class="location-edit-grid">${fields}</div><label class="stacked-field location-note">Change note<textarea id="geo-location-note" placeholder="Explain the location correction"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-location" type="button">Save location</button><button class="secondary" id="geo-cancel-location" type="button">Cancel</button></div>`;
+}
+
+function bindGeoLocationEditor() {
+  const entity = state.geoSelected;
+  const section = document.querySelector('.location-inspector');
+  if (!entity || !section) return;
+  $('geo-edit-location').onclick = () => {
+    section.innerHTML = geoLocationEditor(entity);
+    $('geo-save-location').onclick = saveGeoLocation;
+    $('geo-cancel-location').onclick = () => renderGeoInspector(state.geoAudit || {});
+  };
+}
+
+async function saveGeoLocation() {
+  const entity = state.geoSelected;
+  if (!entity) return;
+  const location = {};
+  document.querySelectorAll('[data-location-field]').forEach(input => { location[input.dataset.locationField] = input.value.trim() || null; });
+  const manualFields = [...document.querySelectorAll('[data-location-manual]:checked')].map(input => input.dataset.locationManual);
+  try {
+    await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/location`, {method:'POST', body:JSON.stringify({location, manualFields, editorId:state.account.id, note:$('geo-location-note')?.value || ''}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    notify('Location metadata saved', 'success');
+    await loadGeoReview({preserveSelection:true, force:true});
+  } catch (error) { notify(error.message, 'error'); }
+}
+
 function renderGeoInspector(audit = state.geoAudit || {}) {
   const inspector = $('geo-inspector');
   const entity = state.geoSelected;
@@ -172,6 +221,7 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   const statuses = geoAllowedStatuses(entity);
   inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug)} · ${esc(entity.entityType)} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
     <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot stays beside the platform geometry. Geometry edits create audit history and never rewrite the original provenance.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(currentGeometry || {}, null, 2))}</pre></div></div></section>
+    ${geoLocationSection(entity)}
     <section class="inspector-section geometry-inspector"><div class="section-heading"><div><h3>Geometry</h3><p class="field-help">Geometry is read-only until you explicitly enter edit mode. Use the map handles to adjust the selected point or polygon.</p></div>${editing ? '<span class="edit-badge">EDIT MODE</span>' : ''}</div>${editing ? `<label class="stacked-field">Geometry change note<textarea id="geo-geometry-note" placeholder="Explain why the geometry was adjusted"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-geometry" type="button">Save geometry</button><button class="secondary" id="geo-cancel-geometry" type="button">Cancel</button></div>` : `<button class="secondary" id="geo-edit-geometry" type="button" ${entity.status === 'RETIRED' ? 'disabled' : ''}>Edit geometry</button><p class="field-help">Editing handles appear only after selecting this button.</p>`}</section>
     <section class="inspector-section"><div class="section-heading"><div><h3>Review decision</h3><p class="field-help">Record the evidence or reason for a lifecycle decision. Approved entities can only be retired so historical QSOs remain valid.</p></div></div><label class="stacked-field">Review note<textarea id="geo-review-note" placeholder="Record the evidence or reason for this decision"></textarea></label><div class="status-review-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-save-status" type="button" ${statuses.length === 1 ? 'disabled' : ''}>Save status</button></div><p class="field-help">Status changes are recorded in the entity audit history.</p></section>
     <section class="inspector-section"><h3>Audit history</h3><div class="audit-list">${geoAuditMarkup(audit)}</div></section>
@@ -182,6 +232,7 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   } else {
     $('geo-edit-geometry').onclick = enterGeoLeafletEdit;
   }
+  bindGeoLocationEditor();
   $('geo-save-status').onclick = saveGeoLeafletStatus;
   $('geo-save-type').onclick = saveGeoLeafletGeometryType;
   if ($('geo-delete-rejected')) $('geo-delete-rejected').onclick = deleteGeoRejected;
