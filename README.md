@@ -52,7 +52,7 @@ normally `http://localhost:8080`. The deployment Compose manifest starts this
 UI on `http://localhost:8090`.
 
 Award background and signature binaries are addressed by object keys in the
-admin UI and can be uploaded through presigned MinIO/S3 URLs. Local Compose
-provides MinIO for those assets; certificate rendering produces a PDF when the
+admin UI and can be uploaded through presigned SeaweedFS/S3 URLs. Local Compose
+provides SeaweedFS for those assets; certificate rendering produces a PDF when the
 registered background and signature are available, otherwise the immutable
 issuance render specification can be retried later.
