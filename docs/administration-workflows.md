@@ -11,6 +11,18 @@ refreshes the queue through the geodata API with the current `minLon`,
 `minLat`, `maxLon`, and `maxLat` values, so entities outside the selected map
 area are not displayed.
 
+Each paged result has a selection checkbox. **Select all on this page** selects
+only the currently displayed page, and changing filters or the page size clears
+the selection. The bulk approval action sends an audited `APPROVED` status
+transition for each eligible entity; already approved entities are skipped and
+retired entities remain protected by the lifecycle rule. Global administrators
+also have **Delete entities permanently**. Before deletion, the UI gathers the
+impact for every selected entity and shows the same stern warning used by the
+single-entity action, including the number of valid QSOs and activations that
+will be affected. Deletion cascades through activity data, queues award
+recalculation, removes the geodata record and audit record, and cannot be
+undone.
+
 The **Entity status** editor allows an approver to set the lifecycle status directly from the inspector. Status changes are recorded in the audit history and emit a status-change event. An `APPROVED` entity can only move to `RETIRED`; a retired entity cannot be reactivated. This protects historical QSOs from being associated with a later-invalidated entity.
 
 The inspector provides:

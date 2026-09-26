@@ -14,6 +14,7 @@ and account controls do not leak into the participant-facing application.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
+- Geodata review page selection with current-page select-all, audited bulk approval, and global-administrator bulk deletion with QSO/activation impact confirmation.
 - Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/way/polygon drawing, and source/audit-aware inspection.
 - Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.

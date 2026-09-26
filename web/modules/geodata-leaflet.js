@@ -24,6 +24,7 @@ let geoReviewPage = 1;
 let geoReviewPageSize = 25;
 let geoReviewTotal = 0;
 let geoReviewLocationOptions = [];
+let geoBulkSelectedIds = new Set();
 function geoIsGlobalAdmin() { try { const payload = JSON.parse(atob(token().split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return (payload.scp || []).includes('*') || (payload.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } catch (_) { return (state.account?.scopes || []).includes('*') || (state.account?.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } }
 
 function geoLeafletStatusStyle(status, selected = false) {
@@ -156,8 +157,11 @@ function geoLeafletCenterOnEntity(entity) {
 function renderGeoQueue() {
   const list = $('geo-entity-list');
   if (!list) return;
-  list.innerHTML = state.geoEntities.map(entity => `<button class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(geoEntityCodes(entity).join(', '))} · ${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(geoLocationValue(entity, 'city') || geoLocationValue(entity, 'municipality') || 'Location unavailable')}</small></span><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></button>`).join('') || '<p class="muted empty">No entities match the selected filters.</p>';
+  const pageIds = new Set(state.geoEntities.map(entity => entity.id));
+  geoBulkSelectedIds = new Set([...geoBulkSelectedIds].filter(id => pageIds.has(id)));
+  list.innerHTML = state.geoEntities.map(entity => `<div class="table-row geo-entity-row ${state.geoSelected?.id === entity.id ? 'selected' : ''}"><input class="geo-bulk-checkbox" type="checkbox" data-geo-bulk-id="${esc(entity.id)}" aria-label="Select ${esc(entity.name)}" ${geoBulkSelectedIds.has(entity.id) ? 'checked' : ''}><button class="geo-entity-open" data-select-geo="${esc(entity.id)}" type="button"><span><strong>${esc(entity.name)}</strong><small>${esc(geoEntityCodes(entity).join(', '))} · ${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(geoLocationValue(entity, 'city') || geoLocationValue(entity, 'municipality') || 'Location unavailable')}</small></span></button><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>`).join('') || '<p class="muted empty">No entities match the selected filters.</p>';
   list.querySelectorAll('[data-select-geo]').forEach(button => { button.onclick = () => selectGeoEntity(button.dataset.selectGeo); });
+  list.querySelectorAll('[data-geo-bulk-id]').forEach(input => { input.onchange = event => { const id = event.target.dataset.geoBulkId; if (event.target.checked) geoBulkSelectedIds.add(id); else geoBulkSelectedIds.delete(id); syncGeoBulkControls(); }; });
   const count = $('geo-count');
   if (count) count.textContent = `${geoReviewTotal} matching ${geoReviewTotal === 1 ? 'entity' : 'entities'}`;
   const pageLabel = $('geo-page-label');
@@ -165,6 +169,30 @@ function renderGeoQueue() {
   if (pageLabel) pageLabel.textContent = `Page ${geoReviewPage} of ${pageCount}`;
   if ($('geo-page-prev')) $('geo-page-prev').disabled = geoReviewPage <= 1;
   if ($('geo-page-next')) $('geo-page-next').disabled = geoReviewPage >= pageCount;
+  syncGeoBulkControls();
+}
+
+function geoBulkSelectedEntities() {
+  return state.geoEntities.filter(entity => geoBulkSelectedIds.has(entity.id));
+}
+
+function syncGeoBulkControls() {
+  const checkboxes = [...document.querySelectorAll('[data-geo-bulk-id]')];
+  const selectedCount = geoBulkSelectedEntities().length;
+  const selectAll = $('geo-select-all');
+  if (selectAll) {
+    selectAll.checked = checkboxes.length > 0 && checkboxes.every(input => input.checked);
+    selectAll.indeterminate = checkboxes.some(input => input.checked) && !selectAll.checked;
+    selectAll.disabled = checkboxes.length === 0;
+  }
+  const count = $('geo-selection-count');
+  if (count) count.textContent = `${selectedCount} selected`;
+  ['geo-bulk-approve', 'geo-bulk-delete'].forEach(id => { if ($(id)) $(id).disabled = selectedCount === 0; });
+}
+
+function clearGeoBulkSelection() {
+  geoBulkSelectedIds.clear();
+  syncGeoBulkControls();
 }
 
 function geoFilterLocationValues(field) {
@@ -407,6 +435,52 @@ async function deleteGeoAny() {
   } catch (error) { notify(error.message, 'error'); }
 }
 
+async function bulkApproveGeoEntities() {
+  const selected = geoBulkSelectedEntities();
+  if (!selected.length) return notify('Select at least one entity first.', 'info');
+  const retired = selected.filter(entity => entity.status === 'RETIRED');
+  const eligible = selected.filter(entity => !['APPROVED', 'RETIRED'].includes(entity.status));
+  if (!eligible.length) return notify(retired.length ? 'Retired entities cannot be changed back to approved.' : 'All selected entities are already approved.', 'info');
+  const skipped = selected.length - eligible.length;
+  const skippedText = skipped ? ` ${skipped} already approved or retired will be skipped.` : '';
+  if (!confirm(`Change status to APPROVED for ${eligible.length} selected entit${eligible.length === 1 ? 'y' : 'ies'}?${skippedText}`)) return;
+  const results = await Promise.allSettled(eligible.map(entity => api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/status`, {method:'POST', body:JSON.stringify({status:'APPROVED', reviewerId:state.account.id, note:'Bulk approval from Geodata Review'}), headers:{'Idempotency-Key':crypto.randomUUID()}})));
+  const failed = results.filter(result => result.status === 'rejected');
+  if (failed.length) notify(`${eligible.length - failed.length} approved; ${failed.length} could not be updated.`, 'error');
+  else notify(`${eligible.length} entit${eligible.length === 1 ? 'y' : 'ies'} approved`, 'success');
+  clearGeoBulkSelection();
+  await loadGeoReview({preserveSelection:true, force:true});
+}
+
+async function bulkDeleteGeoEntities() {
+  if (!geoIsGlobalAdmin()) return notify('Global administrator access is required for permanent deletion.', 'error');
+  const selected = geoBulkSelectedEntities();
+  if (!selected.length) return notify('Select at least one entity first.', 'info');
+  try {
+    const impacts = await Promise.all(selected.map(async entity => ({entity, impact: await api(`/v1/activations/admin/entities/${encodeURIComponent(entity.id)}/deletion-impact`)})));
+    const qsoCount = impacts.reduce((total, item) => total + Number(item.impact.qsoCount || 0), 0);
+    const activationCount = impacts.reduce((total, item) => total + Number(item.impact.activationCount || 0), 0);
+    const names = selected.slice(0, 5).map(entity => `• ${entity.name}`).join('\n');
+    const more = selected.length > 5 ? `\n• …and ${selected.length - 5} more` : '';
+    const warning = `PERMANENT GLOBAL DELETION\n\n${selected.length} entit${selected.length === 1 ? 'y' : 'ies'} will be removed:\n${names}${more}\n\n${qsoCount} valid QSO${qsoCount === 1 ? '' : 's'} will be deleted in cascade and ${activationCount} activation(s) will become invalid. Award progress will be recalculated and previously qualified awards may become invalid.\n\nThis cannot be undone. Continue?`;
+    if (!confirm(warning)) return;
+    const failures = [];
+    let deleted = 0;
+    for (const entity of selected) {
+      try {
+        await api(`/v1/activations/admin/entities/${encodeURIComponent(entity.id)}/cascade-delete`, {method:'POST', body:JSON.stringify({deletedBy:state.account.id}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+        await api(`/v1/geodata/entities/${encodeURIComponent(entity.id)}/delete`, {method:'POST', body:JSON.stringify({deletedBy:state.account.id}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+        deleted += 1;
+      } catch (error) { failures.push(`${entity.name}: ${error.message}`); }
+    }
+    if (state.geoSelected && selected.some(entity => entity.id === state.geoSelected.id)) state.geoSelected = null;
+    clearGeoBulkSelection();
+    notify(failures.length ? `${deleted} deleted; ${failures.length} failed.` : `${deleted} entit${deleted === 1 ? 'y' : 'ies'} deleted; linked QSOs were removed and award recalculation was queued`, failures.length ? 'error' : 'success');
+    await loadGeoReview({preserveSelection:false, force:true});
+    if (failures.length) console.warn('Bulk geodata deletion failures', failures);
+  } catch (error) { notify(error.message, 'error'); }
+}
+
 async function selectGeoEntity(id) {
   const entity = state.geoEntities.find(item => item.id === id);
   if (!entity) return;
@@ -600,9 +674,16 @@ async function submitGeoDrawingLeaflet() {
 
 function bindGeoLeafletWorkspace() {
   $('geo-refresh').onclick = () => loadGeoReview({preserveSelection:true, force:true});
-  $('geo-programme').onchange = () => { state.geoSelected = null; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  $('geo-select-all').onchange = event => {
+    document.querySelectorAll('[data-geo-bulk-id]').forEach(input => { input.checked = event.target.checked; if (event.target.checked) geoBulkSelectedIds.add(input.dataset.geoBulkId); else geoBulkSelectedIds.delete(input.dataset.geoBulkId); });
+    syncGeoBulkControls();
+  };
+  $('geo-bulk-approve').onclick = bulkApproveGeoEntities;
+  $('geo-bulk-delete')?.addEventListener('click', bulkDeleteGeoEntities);
+  $('geo-programme').onchange = () => { clearGeoBulkSelection(); state.geoSelected = null; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
   $('geo-status').onchange = event => {
     document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = !event.target.value || input.value === event.target.value; });
+    clearGeoBulkSelection();
     state.geoSelected = null;
     geoReviewPage = 1;
     loadGeoReview({preserveSelection:false, force:true});
@@ -613,6 +694,7 @@ function bindGeoLeafletWorkspace() {
       return;
     }
     document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = event.target.checked; });
+    clearGeoBulkSelection();
     geoReviewPage = 1;
     loadGeoReview({preserveSelection:false, force:true});
   };
@@ -622,13 +704,14 @@ function bindGeoLeafletWorkspace() {
     const all = document.querySelectorAll('[data-geo-filter-status]:checked').length === GEO_STATUS_ORDER.length;
     $('geo-filter-status-all').checked = all;
     $('geo-status').value = all || checked.length !== 1 ? '' : checked[0].value;
+    clearGeoBulkSelection();
     geoReviewPage = 1;
     loadGeoReview({preserveSelection:false, force:true});
   });
-  document.querySelectorAll('[data-geo-filter]').forEach(input => input.onchange = () => { geoReviewPage = 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); });
-  $('geo-page-size').onchange = event => { geoReviewPageSize = Number(event.target.value) || 25; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
-  $('geo-page-prev').onclick = () => { if (geoReviewPage > 1) { geoReviewPage -= 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
-  $('geo-page-next').onclick = () => { if (geoReviewPage < Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize))) { geoReviewPage += 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
+  document.querySelectorAll('[data-geo-filter]').forEach(input => input.onchange = () => { clearGeoBulkSelection(); geoReviewPage = 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); });
+  $('geo-page-size').onchange = event => { clearGeoBulkSelection(); geoReviewPageSize = Number(event.target.value) || 25; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  $('geo-page-prev').onclick = () => { if (geoReviewPage > 1) { clearGeoBulkSelection(); geoReviewPage -= 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
+  $('geo-page-next').onclick = () => { if (geoReviewPage < Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize))) { clearGeoBulkSelection(); geoReviewPage += 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
   document.querySelectorAll('[data-geo-layer]').forEach(input => input.onchange = renderGeoLeafletLayers);
   $('geo-draw-toggle').onclick = () => {
     if (state.geoDrawingActive) return stopGeoDrawing();
@@ -645,6 +728,7 @@ renderGeoReview = async function() {
   geoReviewPage = 1;
   geoReviewPageSize = 25;
   geoReviewTotal = 0;
+  geoBulkSelectedIds.clear();
   geoLeafletLoadSequence += 1;
   clearTimeout(geoLeafletViewportTimer);
   if (geoLeafletMap) { geoLeafletMap.remove(); geoLeafletMap = null; }
@@ -654,7 +738,7 @@ renderGeoReview = async function() {
   geoLeafletEditMode = false;
   geoLeafletDrawingLayer = null;
   const view = $('geodata-view');
-  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">POSTGIS WORKFLOW</p><h1>Geodata review</h1><p class="muted">Filter the platform-wide entity catalogue, select an item to centre the map, and review its source, geometry, and lifecycle below the map.</p></div><button class="secondary" id="geo-refresh" type="button">Refresh list</button></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes and unassigned</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-draw-toggle" type="button">New candidate</button></div><section class="panel geo-review-filters"><div class="panel-heading"><div><p class="eyebrow">CATALOGUE FILTERS</p><h2>Find entities</h2><p class="field-help">Filters apply to the paged list below. Programme is optional: “All programmes and unassigned” also includes platform-wide entities.</p></div></div><div class="form-grid geo-filter-grid"><label>Entity type<select id="geo-filter-entity-type" data-geo-filter><option value="">All entity types</option>${state.entityTypeCatalogue.map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)}</option>`).join('')}</select></label><label>Continent<input id="geo-filter-continent" data-geo-filter list="geo-filter-continent-options" placeholder="All continents"><datalist id="geo-filter-continent-options"></datalist></label><label>Country<input id="geo-filter-country" data-geo-filter list="geo-filter-country-options" placeholder="All countries"><datalist id="geo-filter-country-options"></datalist></label><label>Region / subdivision<input id="geo-filter-region" data-geo-filter list="geo-filter-region-options" placeholder="All regions"><datalist id="geo-filter-region-options"></datalist></label><label>Province<input id="geo-filter-province" data-geo-filter list="geo-filter-province-options" placeholder="All provinces"><datalist id="geo-filter-province-options"></datalist></label><label>City / municipality<input id="geo-filter-city" data-geo-filter placeholder="All cities and municipalities"></label></div><div class="geo-status-filter"><strong>Entity status</strong><label><input id="geo-filter-status-all" type="checkbox" checked> All</label>${GEO_STATUS_ORDER.map(status => `<label><input data-geo-filter-status value="${status}" type="checkbox" checked> ${status[0] + status.slice(1).toLowerCase()}</label>`).join('')}</div></section><section class="panel geo-results"><div class="panel-heading"><div><p class="eyebrow">FILTERED RESULTS</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div><div id="geo-entity-list" class="geo-entity-list"></div><div class="geo-pagination"><label>Show<select id="geo-page-size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select></label><span id="geo-page-label" class="muted">Page 1</span><button class="secondary" id="geo-page-prev" type="button">Previous</button><button class="secondary" id="geo-page-next" type="button">Next</button></div></section><article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article><section class="panel geo-map-panel"><div class="panel-heading"><div><p class="eyebrow">MAP</p><h2>Selected result locations</h2><p class="field-help">The map shows the current page of filtered results. Selecting a list item centres it here; panning and zooming do not change the list.</p></div></div><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap geodata review map"></div></section><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">ENTITY INSPECTOR</p><h2>Select an entity</h2><p class="muted">Choose an item from the results to review its source, geometry, lifecycle, and audit history.</p></div></article>`;
+  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">POSTGIS WORKFLOW</p><h1>Geodata review</h1><p class="muted">Filter the platform-wide entity catalogue, select an item to centre the map, and review its source, geometry, and lifecycle below the map.</p></div><button class="secondary" id="geo-refresh" type="button">Refresh list</button></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes and unassigned</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-draw-toggle" type="button">New candidate</button></div><section class="panel geo-review-filters"><div class="panel-heading"><div><p class="eyebrow">CATALOGUE FILTERS</p><h2>Find entities</h2><p class="field-help">Filters apply to the paged list below. Programme is optional: “All programmes and unassigned” also includes platform-wide entities.</p></div></div><div class="form-grid geo-filter-grid"><label>Entity type<select id="geo-filter-entity-type" data-geo-filter><option value="">All entity types</option>${state.entityTypeCatalogue.map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)}</option>`).join('')}</select></label><label>Continent<input id="geo-filter-continent" data-geo-filter list="geo-filter-continent-options" placeholder="All continents"><datalist id="geo-filter-continent-options"></datalist></label><label>Country<input id="geo-filter-country" data-geo-filter list="geo-filter-country-options" placeholder="All countries"><datalist id="geo-filter-country-options"></datalist></label><label>Region / subdivision<input id="geo-filter-region" data-geo-filter list="geo-filter-region-options" placeholder="All regions"><datalist id="geo-filter-region-options"></datalist></label><label>Province<input id="geo-filter-province" data-geo-filter list="geo-filter-province-options" placeholder="All provinces"><datalist id="geo-filter-province-options"></datalist></label><label>City / municipality<input id="geo-filter-city" data-geo-filter placeholder="All cities and municipalities"></label></div><div class="geo-status-filter"><strong>Entity status</strong><label><input id="geo-filter-status-all" type="checkbox" checked> All</label>${GEO_STATUS_ORDER.map(status => `<label><input data-geo-filter-status value="${status}" type="checkbox" checked> ${status[0] + status.slice(1).toLowerCase()}</label>`).join('')}</div></section><section class="panel geo-results"><div class="panel-heading"><div><p class="eyebrow">FILTERED RESULTS</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div><div class="geo-bulk-toolbar"><label class="bulk-select-all"><input id="geo-select-all" type="checkbox"> Select all on this page</label><span id="geo-selection-count" class="muted" aria-live="polite">0 selected</span><div class="geo-bulk-actions"><button class="approve" id="geo-bulk-approve" type="button" disabled>Change status to approved</button>${geoIsGlobalAdmin() ? '<button class="danger-button" id="geo-bulk-delete" type="button" disabled>Delete entities permanently</button>' : ''}</div></div><div id="geo-entity-list" class="geo-entity-list"></div><div class="geo-pagination"><label>Show<select id="geo-page-size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select></label><span id="geo-page-label" class="muted">Page 1</span><button class="secondary" id="geo-page-prev" type="button">Previous</button><button class="secondary" id="geo-page-next" type="button">Next</button></div></section><article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article><section class="panel geo-map-panel"><div class="panel-heading"><div><p class="eyebrow">MAP</p><h2>Selected result locations</h2><p class="field-help">The map shows the current page of filtered results. Selecting a list item centres it here; panning and zooming do not change the list.</p></div></div><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap geodata review map"></div></section><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">ENTITY INSPECTOR</p><h2>Select an entity</h2><p class="muted">Choose an item from the results to review its source, geometry, lifecycle, and audit history.</p></div></article>`;
   renderGeoFilterOptions();
   $('geo-import-toggle')?.remove(); $('geo-import')?.remove();
   bindGeoLeafletWorkspace();
