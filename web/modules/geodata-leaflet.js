@@ -401,6 +401,7 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   }
   const managementNameEditor = `<section class="inspector-section entity-name-inspector"><div class="section-heading"><div><h3>Entity name</h3><p class="field-help">Correct the display name when the source contains a spelling, language, or naming error. Name changes are audited and do not alter source provenance.</p></div></div><label class="stacked-field">Name<input id="geo-entity-name" value="${esc(entity.name || '')}" maxlength="240" required></label><label class="stacked-field">Change note<textarea id="geo-entity-name-note" placeholder="Explain why the name was corrected"></textarea></label><button class="secondary" id="geo-save-entity-name" type="button">Save name</button></section>`;
   inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entityCategories.join(', '))} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
+    ${managementNameEditor}
     <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot stays beside the platform geometry. Geometry edits create audit history and never rewrite the original provenance.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(currentGeometry || {}, null, 2))}</pre></div></div></section>
     ${geoLocationSection(entity)}
     <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity categories</h3><p class="field-help">Categories are shared Master data, not programme-owned. Select one or more categories. The first selected category remains the primary compatibility category; every change is audited.</p></div></div><div class="status-review-grid"><label>Categories<select id="geo-entity-type-select" class="geo-category-multiselect" multiple size="5">${availableCategories.map(item => `<option value="${esc(item.code)}" ${entityCategories.includes(item.code) ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !availableCategories.length ? 'disabled' : ''}>Save categories</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the categories were changed"></textarea></label>${availableCategories.length ? '' : '<p class="field-help">No shared categories are available. Add one in Master data first.</p>'}</section>
@@ -443,6 +444,13 @@ function renderGeoGeometryEditor() {
   } else {
     $('geo-edit-geometry').onclick = enterGeoLeafletEdit;
   }
+}
+
+function scrollToGeoManagementEditor() {
+  const target = $('geo-geometry-editor') || $('geo-inspector');
+  if (!target || target.hidden) return;
+  const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - 88);
+  window.scrollTo({top, behavior:'smooth'});
 }
 
 async function deleteGeoAny() {
@@ -516,7 +524,7 @@ async function selectGeoEntity(id) {
   try { state.geoAudit = await api(`/v1/geodata/entities/${encodeURIComponent(id)}/audit`); } catch (_) { state.geoAudit = {}; }
   renderGeoInspector(state.geoAudit);
   if (geoWorkspaceMode === 'management') {
-    requestAnimationFrame(() => $('geo-geometry-editor')?.scrollIntoView({behavior:'smooth', block:'start'}));
+    requestAnimationFrame(() => requestAnimationFrame(scrollToGeoManagementEditor));
   }
 }
 
