@@ -12,6 +12,11 @@ and account controls do not leak into the participant-facing application.
 - Dashboard for service health, programmes, review queue, active work and security events.
 - Programme create/update/archive and policy/theme editing.
 - Geodata candidate/proposal review and manual GeoJSON import launch.
+- Separate Geodata review and Entity management workspaces: review keeps filters,
+  map, source comparison, status changes, and review decisions; management keeps
+  the filtered catalogue, Leaflet popups, name/location/category editing,
+  geometry editing, GIS administration, audit history, and permanent deletion
+  warnings.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
 - Geodata review page selection with current-page select-all, audited bulk approval, and global-administrator bulk deletion with QSO/activation impact confirmation.

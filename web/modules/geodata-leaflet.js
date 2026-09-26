@@ -9,6 +9,7 @@ let geoLeafletHasFittedInitialData = false;
 let geoLeafletEditMode = false;
 let geoLeafletDrawingLayer = null;
 let geoLeafletSuppressViewportUntil = 0;
+let geoWorkspaceMode = 'review';
 
 // Older page wrappers may still finish an in-flight request while this module
 // is being replaced. Their controls are intentionally disabled so they cannot
@@ -66,6 +67,9 @@ function geoLeafletMakeLayer(entity) {
   group.eachLayer(layer => { editable = layer; });
   if (!editable) return null;
   editable.bindTooltip(`${entity.name} · ${entity.status}`, {direction:'top', sticky:true});
+  if (geoWorkspaceMode === 'management' && typeof entityMapPopup === 'function') {
+    editable.bindPopup(entityMapPopup(entity), {maxWidth:340, minWidth:250});
+  }
   editable.on('click', event => {
     L.DomEvent.stopPropagation(event);
     selectGeoEntity(entity.id);
@@ -388,13 +392,19 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   const statuses = geoAllowedStatuses(entity);
   const entityCategories = geoEntityCodes(entity);
   const availableCategories = geoEntityTypeCatalogue(entity);
-  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entityCategories.join(', '))} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
+  if (geoWorkspaceMode === 'review') {
+    inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">REVIEW QUEUE</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entityCategories.join(', '))} · ${esc(entity.status)}</p></div><span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
+      <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">Review the imported source snapshot alongside the current platform geometry before recording a lifecycle decision. Source provenance is never changed by review actions.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(entity.geometry || {}, null, 2))}</pre></div></div></section>
+      <section class="inspector-section"><div class="section-heading"><div><h3>Review decision</h3><p class="field-help">Record the evidence or reason for a lifecycle decision. Approved entities can only be retired so historical QSOs remain valid.</p></div></div><label class="stacked-field">Review note<textarea id="geo-review-note" placeholder="Record the evidence or reason for this decision"></textarea></label><div class="status-review-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-save-status" type="button" ${statuses.length === 1 ? 'disabled' : ''}>Save status</button></div><p class="field-help">Status changes are recorded in the entity audit history.</p></section>`;
+    $('geo-save-status').onclick = saveGeoLeafletStatus;
+    return;
+  }
+  const managementNameEditor = `<div class="entity-name-header-editor"><label>Name<input id="geo-entity-name" value="${esc(entity.name || '')}" maxlength="240" required></label><label>Change note<textarea id="geo-entity-name-note" placeholder="Explain why the name was corrected"></textarea></label><button class="secondary" id="geo-save-entity-name" type="button">Save name</button></div>`;
+  inspector.innerHTML = `<div class="panel-heading"><div><p class="eyebrow">ENTITY INSPECTOR</p><h2>${esc(entity.name)}</h2><p class="muted">${esc(entity.programmeSlug || 'Platform-wide')} · ${esc(entityCategories.join(', '))} · ${esc(entity.status)}</p></div>${managementNameEditor}<span class="status-pill ${geoStatusClass(entity.status)}">${esc(entity.status)}</span></div>
     <section class="inspector-section"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot stays beside the platform geometry. Geometry edits create audit history and never rewrite the original provenance.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">${esc(JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2))}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">${esc(JSON.stringify(currentGeometry || {}, null, 2))}</pre></div></div></section>
     ${geoLocationSection(entity)}
-    <section class="inspector-section entity-name-inspector"><div class="section-heading"><div><h3>Entity name</h3><p class="field-help">Correct the display name when the source contains a spelling, language, or naming error. Name changes are audited and do not alter source provenance.</p></div></div><label class="stacked-field">Name<input id="geo-entity-name" value="${esc(entity.name || '')}" maxlength="240" required></label><label class="stacked-field">Name change note<textarea id="geo-entity-name-note" placeholder="Explain why the name was corrected"></textarea></label><button class="secondary" id="geo-save-entity-name" type="button">Save name</button></section>
     <section class="inspector-section entity-type-inspector"><div class="section-heading"><div><h3>Entity categories</h3><p class="field-help">Categories are shared Master data, not programme-owned. Select one or more categories. The first selected category remains the primary compatibility category; every change is audited.</p></div></div><div class="status-review-grid"><label>Categories<select id="geo-entity-type-select" class="geo-category-multiselect" multiple size="5">${availableCategories.map(item => `<option value="${esc(item.code)}" ${entityCategories.includes(item.code) ? 'selected' : ''}>${esc(item.label || item.code)}${item.active === false ? ' (inactive)' : ''}</option>`).join('')}</select></label><button class="secondary" id="geo-save-entity-type" type="button" ${entity.status === 'RETIRED' || !availableCategories.length ? 'disabled' : ''}>Save categories</button></div><label class="stacked-field">Category change note<textarea id="geo-entity-type-note" placeholder="Explain why the categories were changed"></textarea></label>${availableCategories.length ? '' : '<p class="field-help">No shared categories are available. Add one in Master data first.</p>'}</section>
     <section class="inspector-section geometry-inspector"><div class="section-heading"><div><h3>Geometry</h3><p class="field-help">Geometry is read-only until you explicitly enter edit mode. Use the map handles to adjust the selected point, way / trail, or polygon.</p></div>${editing ? '<span class="edit-badge">EDIT MODE</span>' : ''}</div>${editing ? `<label class="stacked-field">Geometry change note<textarea id="geo-geometry-note" placeholder="Explain why the geometry was adjusted"></textarea></label><div class="form-actions"><button class="primary" id="geo-save-geometry" type="button">Save geometry</button><button class="secondary" id="geo-cancel-geometry" type="button">Cancel</button></div>` : `<button class="secondary" id="geo-edit-geometry" type="button" ${entity.status === 'RETIRED' ? 'disabled' : ''}>Edit geometry</button><p class="field-help">Editing handles appear only after selecting this button.</p>`}</section>
-    <section class="inspector-section"><div class="section-heading"><div><h3>Review decision</h3><p class="field-help">Record the evidence or reason for a lifecycle decision. Approved entities can only be retired so historical QSOs remain valid.</p></div></div><label class="stacked-field">Review note<textarea id="geo-review-note" placeholder="Record the evidence or reason for this decision"></textarea></label><div class="status-review-grid"><label>Status<select id="geo-status-select">${statuses.map(status => `<option value="${status}" ${status === entity.status ? 'selected' : ''}>${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label><button class="primary" id="geo-save-status" type="button" ${statuses.length === 1 ? 'disabled' : ''}>Save status</button></div><p class="field-help">Status changes are recorded in the entity audit history.</p></section>
     <section class="inspector-section"><h3>Audit history</h3><div class="audit-list">${geoAuditMarkup(audit)}</div></section>
     <section class="inspector-section gis-admin-section"><h3>GIS administration</h3><p class="field-help">Global and GIS administrators can convert point, way, and polygon geometries. A way is a trail or other linear feature stored as GeoJSON LineString. Rejected entities may be permanently removed together with their audit record.</p><div class="status-review-grid"><label>Geometry type<select id="geo-geometry-type"><option value="POINT" ${entity.geometry?.type === 'Point' ? 'selected' : ''}>Point</option><option value="WAY" ${entity.geometry?.type === 'LineString' ? 'selected' : ''}>Way / trail</option><option value="POLYGON" ${entity.geometry?.type === 'Polygon' || entity.geometry?.type === 'MultiPolygon' ? 'selected' : ''}>Polygon</option></select></label><button class="secondary" id="geo-save-type" type="button" ${entity.status === 'RETIRED' ? 'disabled' : ''}>Save type</button></div><textarea id="geo-type-note" placeholder="Explain why the geometry type changed"></textarea>${entity.status === 'REJECTED' ? '<div class="form-actions"><button class="danger-button" id="geo-delete-rejected" type="button">Delete rejected entity permanently</button></div><p class="field-help">Deletion removes the entity and its audit record. It cannot be undone.</p>' : ''}</section>`;
   if (editing) {
@@ -415,7 +425,6 @@ function renderGeoInspector(audit = state.geoAudit || {}) {
   }
   $('geo-save-entity-type').onclick = saveGeoLeafletEntityType;
   $('geo-save-entity-name').onclick = saveGeoLeafletEntityName;
-  $('geo-save-status').onclick = saveGeoLeafletStatus;
   $('geo-save-type').onclick = saveGeoLeafletGeometryType;
   if ($('geo-delete-rejected')) $('geo-delete-rejected').onclick = deleteGeoRejected;
   if ($('geo-delete-any')) $('geo-delete-any').onclick = deleteGeoAny;
@@ -673,22 +682,22 @@ async function submitGeoDrawingLeaflet() {
 }
 
 function bindGeoLeafletWorkspace() {
-  $('geo-refresh').onclick = () => loadGeoReview({preserveSelection:true, force:true});
-  $('geo-select-all').onchange = event => {
+  if ($('geo-refresh')) $('geo-refresh').onclick = () => loadGeoReview({preserveSelection:true, force:true});
+  if ($('geo-select-all')) $('geo-select-all').onchange = event => {
     document.querySelectorAll('[data-geo-bulk-id]').forEach(input => { input.checked = event.target.checked; if (event.target.checked) geoBulkSelectedIds.add(input.dataset.geoBulkId); else geoBulkSelectedIds.delete(input.dataset.geoBulkId); });
     syncGeoBulkControls();
   };
-  $('geo-bulk-approve').onclick = bulkApproveGeoEntities;
+  if ($('geo-bulk-approve')) $('geo-bulk-approve').onclick = bulkApproveGeoEntities;
   $('geo-bulk-delete')?.addEventListener('click', bulkDeleteGeoEntities);
-  $('geo-programme').onchange = () => { clearGeoBulkSelection(); state.geoSelected = null; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
-  $('geo-status').onchange = event => {
+  if ($('geo-programme')) $('geo-programme').onchange = () => { clearGeoBulkSelection(); state.geoSelected = null; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  if ($('geo-status')) $('geo-status').onchange = event => {
     document.querySelectorAll('[data-geo-filter-status]').forEach(input => { input.checked = !event.target.value || input.value === event.target.value; });
     clearGeoBulkSelection();
     state.geoSelected = null;
     geoReviewPage = 1;
     loadGeoReview({preserveSelection:false, force:true});
   };
-  $('geo-filter-status-all').onchange = event => {
+  if ($('geo-filter-status-all')) $('geo-filter-status-all').onchange = event => {
     if (!event.target.checked) {
       event.target.checked = true;
       return;
@@ -709,11 +718,11 @@ function bindGeoLeafletWorkspace() {
     loadGeoReview({preserveSelection:false, force:true});
   });
   document.querySelectorAll('[data-geo-filter]').forEach(input => input.onchange = () => { clearGeoBulkSelection(); geoReviewPage = 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); });
-  $('geo-page-size').onchange = event => { clearGeoBulkSelection(); geoReviewPageSize = Number(event.target.value) || 25; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
-  $('geo-page-prev').onclick = () => { if (geoReviewPage > 1) { clearGeoBulkSelection(); geoReviewPage -= 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
-  $('geo-page-next').onclick = () => { if (geoReviewPage < Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize))) { clearGeoBulkSelection(); geoReviewPage += 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
+  if ($('geo-page-size')) $('geo-page-size').onchange = event => { clearGeoBulkSelection(); geoReviewPageSize = Number(event.target.value) || 25; geoReviewPage = 1; loadGeoReview({preserveSelection:false, force:true}); };
+  if ($('geo-page-prev')) $('geo-page-prev').onclick = () => { if (geoReviewPage > 1) { clearGeoBulkSelection(); geoReviewPage -= 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
+  if ($('geo-page-next')) $('geo-page-next').onclick = () => { if (geoReviewPage < Math.max(1, Math.ceil(geoReviewTotal / geoReviewPageSize))) { clearGeoBulkSelection(); geoReviewPage += 1; state.geoSelected = null; loadGeoReview({preserveSelection:false, force:true}); } };
   document.querySelectorAll('[data-geo-layer]').forEach(input => input.onchange = renderGeoLeafletLayers);
-  $('geo-draw-toggle').onclick = () => {
+  if ($('geo-draw-toggle')) $('geo-draw-toggle').onclick = () => {
     if (state.geoDrawingActive) return stopGeoDrawing();
     state.geoDrawingActive = true;
     state.geoDrawingDraft = {};
@@ -748,3 +757,72 @@ renderGeoReview = async function() {
   map.invalidateSize(false);
   await loadGeoReview({preserveSelection:true, force:true});
 };
+
+// The review and management workspaces intentionally share the same filtering,
+// pagination, selection, and Leaflet data flow. Only the inspector and the
+// available actions differ, so an entity cannot silently acquire two editing
+// implementations with different persistence behavior.
+function resetGeoWorkspaceState() {
+  geoLeafletLoadSequence += 1;
+  clearTimeout(geoLeafletViewportTimer);
+  geoLeafletMap?.remove();
+  geoLeafletMap = null;
+  geoLeafletLayers = null;
+  geoLeafletEntityLayers = new Map();
+  geoLeafletHasFittedInitialData = false;
+  geoLeafletEditMode = false;
+  geoLeafletDrawingLayer = null;
+  state.geoDrawingActive = false;
+  state.geoDrawingActiveNow = false;
+  state.geoEditingGeometry = null;
+}
+
+function geoWorkspaceMarkup(mode) {
+  const review = mode === 'review';
+  const heading = review ? 'Geodata review' : 'Entity management';
+  const eyebrow = review ? 'POSTGIS WORKFLOW' : 'ENTITY CATALOGUE';
+  const description = review
+    ? 'Filter the platform-wide entity catalogue, select an item to centre the map, and record a review decision.'
+    : 'Filter the platform-wide entity catalogue, select an entity to centre the map, and manage its persisted metadata and GIS record.';
+  const actions = review
+    ? '<button class="primary" id="geo-draw-toggle" type="button">New candidate</button>'
+    : '<span class="field-help workspace-note">Editing is available only for the selected entity below the map.</span>';
+  const bulk = review
+    ? '<div class="geo-bulk-toolbar"><label class="bulk-select-all"><input id="geo-select-all" type="checkbox"> Select all on this page</label><span id="geo-selection-count" class="muted" aria-live="polite">0 selected</span><div class="geo-bulk-actions"><button class="approve" id="geo-bulk-approve" type="button" disabled>Change status to approved</button></div></div>'
+    : '<div class="geo-bulk-toolbar"><span class="field-help">Select an entity to open its management tools.</span></div>';
+  const inspectorIntro = review
+    ? 'Choose an item from the results to review its source and record a lifecycle decision.'
+    : 'Choose an item from the results to edit its name, location, categories, geometry, GIS data, audit history, or deletion state.';
+  return `<div class="page-heading"><div><p class="eyebrow">${eyebrow}</p><h1>${heading}</h1><p class="muted">${description}</p></div><div class="page-heading-actions"><button class="secondary" id="geo-refresh" type="button">Refresh list</button>${actions}</div></div><div class="toolbar geo-toolbar"><label class="toolbar-field">Programme<select id="geo-programme"><option value="">All programmes and unassigned</option>${state.programmes.map(p => `<option value="${esc(p.slug)}" ${p.slug === state.currentProgramme ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label><label class="toolbar-field">Status<select id="geo-status"><option value="">All statuses</option>${GEO_STATUS_ORDER.map(status => `<option value="${status}">${status[0] + status.slice(1).toLowerCase()}</option>`).join('')}</select></label></div><section class="panel geo-review-filters"><div class="panel-heading"><div><p class="eyebrow">CATALOGUE FILTERS</p><h2>Find entities</h2><p class="field-help">Filters apply to the paged list below. Programme is optional: “All programmes and unassigned” also includes platform-wide entities.</p></div></div><div class="form-grid geo-filter-grid"><label>Entity type<select id="geo-filter-entity-type" data-geo-filter><option value="">All entity types</option>${state.entityTypeCatalogue.map(item => `<option value="${esc(item.code)}">${esc(item.label || item.code)}</option>`).join('')}</select></label><label>Continent<input id="geo-filter-continent" data-geo-filter list="geo-filter-continent-options" placeholder="All continents"><datalist id="geo-filter-continent-options"></datalist></label><label>Country<input id="geo-filter-country" data-geo-filter list="geo-filter-country-options" placeholder="All countries"><datalist id="geo-filter-country-options"></datalist></label><label>Region / subdivision<input id="geo-filter-region" data-geo-filter list="geo-filter-region-options" placeholder="All regions"><datalist id="geo-filter-region-options"></datalist></label><label>Province<input id="geo-filter-province" data-geo-filter list="geo-filter-province-options" placeholder="All provinces"><datalist id="geo-filter-province-options"></datalist></label><label>City / municipality<input id="geo-filter-city" data-geo-filter placeholder="All cities and municipalities"></label></div><div class="geo-status-filter"><strong>Entity status</strong><label><input id="geo-filter-status-all" type="checkbox" checked> All</label>${GEO_STATUS_ORDER.map(status => `<label><input data-geo-filter-status value="${status}" type="checkbox" checked> ${status[0] + status.slice(1).toLowerCase()}</label>`).join('')}</div></section><section class="panel geo-results"><div class="panel-heading"><div><p class="eyebrow">FILTERED RESULTS</p><h2>Entities</h2></div><span id="geo-count" class="muted"></span></div>${bulk}<div id="geo-entity-list" class="geo-entity-list"></div><div class="geo-pagination"><label>Show<select id="geo-page-size"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select></label><span id="geo-page-label" class="muted">Page 1</span><button class="secondary" id="geo-page-prev" type="button">Previous</button><button class="secondary" id="geo-page-next" type="button">Next</button></div></section>${review ? '<article id="geo-draw-panel" class="panel geo-draw-panel" hidden></article>' : ''}<section class="panel geo-map-panel"><div class="panel-heading"><div><p class="eyebrow">MAP</p><h2>Selected result locations</h2><p class="field-help">The map shows the current page of filtered results. Selecting a list item centres it here; panning and zooming do not change the list.${review ? '' : ' Open a map popup for a quick summary, then use the management sections below for changes.'}</p></div></div><div id="geo-map" class="geo-map" role="application" aria-label="OpenStreetMap entity map"></div></section><article id="geo-inspector" class="panel geo-inspector"><div class="geo-empty-inspector"><p class="eyebrow">${review ? 'REVIEW QUEUE' : 'ENTITY MANAGEMENT'}</p><h2>Select an entity</h2><p class="muted">${inspectorIntro}</p></div></article>`;
+}
+
+async function renderGeoWorkspace(mode) {
+  geoWorkspaceMode = mode;
+  resetGeoWorkspaceState();
+  state.geoSelected = null;
+  geoReviewPage = 1;
+  geoReviewPageSize = 25;
+  geoReviewTotal = 0;
+  geoBulkSelectedIds.clear();
+  const reviewView = $('geodata-view');
+  const managementView = $('entity-management-view');
+  if (mode === 'review') {
+    managementView.innerHTML = '';
+    reviewView.innerHTML = geoWorkspaceMarkup(mode);
+  } else {
+    reviewView.innerHTML = '';
+    managementView.innerHTML = geoWorkspaceMarkup(mode);
+  }
+  try { await loadGeoEntityTypeCatalogue(); } catch (error) { state.entityTypeCatalogue = []; notify(`Unable to load shared categories: ${error.message}`, 'error'); }
+  try { geoReviewLocationOptions = (await api('/v1/geodata/location-options')).continents || []; } catch (error) { geoReviewLocationOptions = []; notify(`Location filters unavailable: ${error.message}`, 'error'); }
+  renderGeoFilterOptions();
+  bindGeoLeafletWorkspace();
+  const map = ensureGeoLeafletMap();
+  if (!map) return;
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  map.invalidateSize(false);
+  await loadGeoReview({preserveSelection:false, force:true});
+}
+
+renderGeoReview = async function() { await renderGeoWorkspace('review'); };
+async function renderEntityManagement() { await renderGeoWorkspace('management'); }
