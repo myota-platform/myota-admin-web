@@ -5,6 +5,12 @@ Activation Platform. This is intentionally separate from the public
 `myota-web` experience: administrator navigation, review queues, audit context,
 and account controls do not leak into the participant-facing application.
 
+MyOTA's purpose, motivation, and policy boundary are documented in the
+[project charter](https://github.com/myota-platform/myota-docs/blob/main/docs/project-charter.md).
+The public Explorer and participant workflows are deliberately tracked as
+remaining work in the [charter gap analysis](https://github.com/myota-platform/myota-docs/blob/main/docs/charter-gap-analysis.md);
+the admin web should not absorb those participant-only responsibilities.
+
 ## Initial slice
 
 - Signed-token login, refresh and logout through the identity service.
