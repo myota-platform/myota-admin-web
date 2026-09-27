@@ -44,17 +44,21 @@ file. A file satisfies the source requirement by itself; the paste field is
 optional whenever a file has been selected. Binary formats must be uploaded.
 
 Submitting a text dataset returns immediately with a `QUEUED` import run. Text
-parsing, geometry normalization, reverse-geocoding, deduplication, and
-candidate persistence run asynchronously, so large pasted FeatureCollections
-do not hold the browser request open. The request body is bounded by the
+parsing, geometry normalization, reverse-geocoding, and deduplication run
+asynchronously, so large pasted FeatureCollections do not hold the browser
+request open. The run first reaches `PREPROCESSED`; records are shown in a
+compact paged validation queue in the import summary modal. Select a page or
+all records, confirm the selection, choose `CANDIDATE` or `APPROVED`, and queue
+the confirmed records for promotion. The request body is bounded by the
 deployment's configured geodata import limit, and the run remains visible after
 the page is refreshed.
 
 Click any run in **Recent import runs** to open its summary. The modal shows
 the lifecycle status, timestamps, selected categories, source licence and
-attribution, source hash/change information, counts of created/updated/skipped
-features, disappeared records, and processing errors. Imports always create or
-refresh `CANDIDATE` entities; programme assignment is separate.
+attribution, source hash/change information, counts of pre-processed and
+promoted records, disappeared records, and processing errors. Imports are
+programme-independent. No pre-processed record is an entity until it has been
+confirmed and promoted through the separate NATS-backed processing queue.
 
 ## Entity map
 
