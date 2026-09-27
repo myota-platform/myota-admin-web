@@ -13,7 +13,6 @@ const ENTITY_MAP_DEFAULT_ZOOM = 12;
 function entityMapStatusStyle(status) {
   const colors = {
     CANDIDATE: {fill:'#fbbf24', stroke:'#7c5410'},
-    PROPOSED: {fill:'#8b5cf6', stroke:'#4c1d95'},
     APPROVED: {fill:'#10b981', stroke:'#065f46'},
     RETIRED: {fill:'#64748b', stroke:'#334155'},
     REJECTED: {fill:'#ef4444', stroke:'#991b1b'}

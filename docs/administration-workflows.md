@@ -4,7 +4,7 @@ The administration web is intentionally programme-agnostic. It stores and publis
 
 ## Geodata review
 
-Open **Geodata review** and choose a programme. The map separates `CANDIDATE`, `PROPOSED`, `APPROVED`, `RETIRED`, and `REJECTED` entities into distinct visual layers. Select an entity on the map or in the list to open its inspector; the map automatically centers and zooms to the selected geometry.
+Open **Geodata review** and choose a programme. The map separates `CANDIDATE`, `APPROVED`, `RETIRED`, and `REJECTED` entities into distinct visual layers. Select an entity on the map or in the list to open its inspector; the map automatically centers and zooms to the selected geometry.
 
 The review queue is bound to the visible map bounding box. Panning or zooming
 refreshes the queue through the geodata API with the current `minLon`,

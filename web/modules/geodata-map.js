@@ -35,7 +35,7 @@ function bindGeoStatusControl() {
     ? ['RETIRED']
     : entity.status === 'RETIRED'
       ? ['RETIRED']
-      : ['APPROVED', 'CANDIDATE', 'PROPOSED', 'RETIRED', 'REJECTED'];
+      : ['APPROVED', 'CANDIDATE', 'RETIRED', 'REJECTED'];
   const terminal = entity.status === 'RETIRED';
   const section = document.createElement('section');
   section.id = 'geo-status-editor';
