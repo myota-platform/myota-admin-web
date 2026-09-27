@@ -26,12 +26,26 @@
 .import-candidate-toolbar select,.import-candidate-actions select{background:var(--white);border:1px solid var(--line);border-radius:7px;padding:8px}
 .checkbox-label{gap:7px!important}
 .import-candidate-list{border:1px solid var(--line);border-radius:8px;margin-top:12px;max-height:340px;overflow:auto}
-.import-candidate-row{align-items:center;border-bottom:1px solid var(--line);display:grid;gap:10px;grid-template-columns:auto minmax(0,1fr) auto;padding:10px 12px}
+.import-candidate-row{align-items:center;border-bottom:1px solid var(--line);display:grid;gap:10px;grid-template-columns:auto minmax(0,1fr) auto auto;padding:10px 12px}
 .import-candidate-row:last-child{border-bottom:0}
 .import-candidate-row strong,.import-candidate-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .import-candidate-row small{color:var(--muted);margin-top:2px}
+.possible-duplicate{background:#fff7ed;border:1px solid #fdba74;border-radius:999px;color:#9a3412;font-size:11px;font-weight:800;padding:6px 9px;white-space:nowrap}
+.possible-duplicate:hover{background:#ffedd5}
 .import-candidate-actions{justify-content:flex-end}
 .import-candidate-pagination{justify-content:space-between}
 .import-candidate-pagination span{color:var(--muted);font-size:12px}
 .geo-import-modal>.form-actions{justify-content:flex-end;margin-top:22px}
+.geo-import-duplicate-modal{border:0;border-radius:14px;box-shadow:0 24px 70px #123b3240;color:var(--ink);max-width:900px;padding:26px;width:calc(100% - 32px)}
+.geo-import-duplicate-modal::backdrop{background:#102a2a66}
+.import-duplicate-heading{align-items:start;display:flex;gap:20px;justify-content:space-between}
+.import-duplicate-heading h2{margin:0 0 4px}
+.import-duplicate-heading .status-pill{flex:none}
+.import-duplicate-legend{align-items:center;display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 10px}
+.candidate-dot,.existing-dot{border-radius:50%;display:inline-block;height:12px;margin-left:8px;width:12px}
+.candidate-dot{background:#f59e0b}.existing-dot{background:#0f766e}
+.geo-duplicate-map{border:1px solid var(--line);border-radius:10px;height:480px;min-height:360px;overflow:hidden}
+.import-duplicate-details{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));margin:16px 0 0}
+.import-duplicate-details dt{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}.import-duplicate-details dd{margin:3px 0 0;overflow-wrap:anywhere}
+.geo-import-duplicate-modal>.form-actions{justify-content:flex-end;margin-top:22px}
 @media(max-width:700px){.import-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.import-summary-details{grid-template-columns:1fr}.geo-import-modal{padding:18px}}

@@ -43,6 +43,10 @@ shared categories, then either paste a supported text document or upload a
 file. A file satisfies the source requirement by itself; the paste field is
 optional whenever a file has been selected. Binary formats must be uploaded.
 
+For OpenStreetMap exports, select **OpenStreetMap GeoJSON**. The service uses
+the OSM adapter, preserves ODbL attribution/source references, and applies the
+configured OSM tag filter before records enter the validation queue.
+
 Submitting a text dataset returns immediately with a `QUEUED` import run. Text
 parsing, geometry normalization, reverse-geocoding, and deduplication run
 asynchronously, so large pasted FeatureCollections do not hold the browser
@@ -59,6 +63,12 @@ attribution, source hash/change information, counts of pre-processed and
 promoted records, disappeared records, and processing errors. Imports are
 programme-independent. No pre-processed record is an entity until it has been
 confirmed and promoted through the separate NATS-backed processing queue.
+
+Records with identical geometry or an existing entity within 50 metres show a
+**Possible duplicate** warning. Select that warning to open a Leaflet comparison
+map with the incoming and existing geometries in separate colours. The warning
+does not block confirmation; the administrator decides whether the record is a
+legitimate update, a separate entity, or should be rejected.
 
 ## Entity map
 

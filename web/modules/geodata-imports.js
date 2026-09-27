@@ -1,10 +1,10 @@
 const GEO_IMPORT_FORMATS = [
   ['GEOJSON', 'GeoJSON'], ['KML', 'KML'], ['GPX', 'GPX'], ['SHAPEFILE', 'Shapefile archive (.shp/.shx/.dbf or .zip)'],
-  ['OSM_PBF', 'OpenStreetMap PBF'], ['PARKSERVE_US', 'ParkServe US'], ['WFS', 'WFS / GeoJSON'], ['ARCGIS_FEATURESERVER', 'ArcGIS FeatureServer']
+  ['OSM_GEOJSON', 'OpenStreetMap GeoJSON'], ['OSM_PBF', 'OpenStreetMap PBF'], ['PARKSERVE_US', 'ParkServe US'], ['WFS', 'WFS / GeoJSON'], ['ARCGIS_FEATURESERVER', 'ArcGIS FeatureServer']
 ];
 
 function importFormatHelp(format) {
-  return ['GEOJSON', 'KML', 'GPX', 'WFS', 'ARCGIS_FEATURESERVER'].includes(format)
+  return ['GEOJSON', 'OSM_GEOJSON', 'KML', 'GPX', 'WFS', 'ARCGIS_FEATURESERVER'].includes(format)
     ? 'Paste the source document into the text area, or choose a file below.'
     : 'Choose a file. Shapefiles must be uploaded as a ZIP containing the .shp, .shx, and .dbf sidecars.';
 }
@@ -16,7 +16,7 @@ async function loadImportCategories() {
 
 function updateImportFormat() {
   const format = $('geo-import-format')?.value || 'GEOJSON';
-  const text = ['GEOJSON', 'KML', 'GPX', 'WFS', 'ARCGIS_FEATURESERVER'].includes(format);
+  const text = ['GEOJSON', 'OSM_GEOJSON', 'KML', 'GPX', 'WFS', 'ARCGIS_FEATURESERVER'].includes(format);
   $('geo-import-content-wrap').hidden = !text;
   $('geo-import-file-wrap').hidden = false;
   // A text document may be pasted or uploaded. The submit handler validates
@@ -25,7 +25,8 @@ function updateImportFormat() {
   $('geo-import-content').required = false;
   $('geo-import-content').removeAttribute('required');
   $('geo-import-content').disabled = !text;
-  $('geo-import-file').accept = format === 'SHAPEFILE' ? '.zip,.shp' : format === 'GEOJSON' ? '.json,.geojson' : format === 'KML' ? '.kml' : format === 'GPX' ? '.gpx' : '*/*';
+  $('geo-import-file').accept = ['GEOJSON', 'OSM_GEOJSON'].includes(format) ? '.json,.geojson' : format === 'SHAPEFILE' ? '.zip,.shp' : format === 'KML' ? '.kml' : format === 'GPX' ? '.gpx' : '*/*';
+  if (format === 'OSM_GEOJSON') $('geo-import-adapter').value = 'OSM';
   $('geo-import-format-help').textContent = importFormatHelp(format);
 }
 
@@ -61,6 +62,7 @@ async function loadImportCandidates(runId, page = candidateState(runId).page) {
   state.page = page;
   const data = await api(`/v1/geodata/imports/${encodeURIComponent(runId)}/candidates?page=${page}&pageSize=${state.pageSize}`);
   state.total = data.total || 0;
+  state.items = data.items || [];
   renderImportCandidateQueue(runId, data);
 }
 
@@ -73,15 +75,44 @@ function renderImportCandidateQueue(runId, data) {
     root.innerHTML = `<h3>Validate pre-processed records</h3><p class="muted empty">No pre-processed records are available for this run.</p>`;
     return;
   }
-  root.innerHTML = `<div class="section-heading"><div><h3>Validate pre-processed records</h3><p class="field-help">Select individual records or select every record in the run. Confirmed records can then be sent to the CANDIDATE or APPROVED queue.</p></div><strong class="muted">${data.total} total</strong></div><div class="import-candidate-toolbar"><label class="checkbox-label"><input type="checkbox" id="geo-import-select-page"> Select page</label><button type="button" class="secondary" id="geo-import-select-all">Select all records</button><label>Page size<select id="geo-import-page-size"><option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option><option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option><option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option></select></label></div><div class="import-candidate-list">${items.map(candidate => `<label class="import-candidate-row"><input type="checkbox" data-import-candidate="${esc(candidate.id)}" ${state.selected.has(candidate.id) ? 'checked' : ''} ${candidate.validationStatus === 'PROCESSED' ? 'disabled' : ''}><span><strong>${esc(candidate.name || 'Unnamed candidate')}</strong><small>${esc(candidate.entityTypes?.join(', ') || 'No category')} · ${esc(candidate.geometry?.type || 'Unknown geometry')} · ${esc(candidate.sourceRef || 'No source reference')}</small></span><span class="status-pill ${geoStatusClass(candidate.validationStatus)}">${esc(candidate.validationStatus || 'PENDING')}</span></label>`).join('')}</div><div class="import-candidate-actions"><button type="button" class="secondary" id="geo-import-confirm-selected">Confirm selected</button><label>Promote as<select id="geo-import-target-status"><option value="CANDIDATE">CANDIDATE</option><option value="APPROVED">APPROVED</option></select></label><button type="button" class="primary" id="geo-import-process-selected">Queue selected</button></div><div class="import-candidate-pagination"><button type="button" class="secondary" id="geo-import-prev" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${data.page} of ${Math.max(1, Math.ceil(data.total / data.pageSize))}</span><button type="button" class="secondary" id="geo-import-next" ${!data.nextPage ? 'disabled' : ''}>Next</button></div>`;
+  root.innerHTML = `<div class="section-heading"><div><h3>Validate pre-processed records</h3><p class="field-help">Select individual records or select every record in the run. Confirmed records can then be sent to the CANDIDATE or APPROVED queue.</p></div><strong class="muted">${data.total} total</strong></div><div class="import-candidate-toolbar"><label class="checkbox-label"><input type="checkbox" id="geo-import-select-page"> Select page</label><button type="button" class="secondary" id="geo-import-select-all">Select all records</button><label>Page size<select id="geo-import-page-size"><option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option><option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option><option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option></select></label></div><div class="import-candidate-list">${items.map(candidate => `<div class="import-candidate-row"><input type="checkbox" data-import-candidate="${esc(candidate.id)}" ${state.selected.has(candidate.id) ? 'checked' : ''} ${candidate.validationStatus === 'PROCESSED' ? 'disabled' : ''}><span><strong>${esc(candidate.name || 'Unnamed candidate')}</strong><small>${esc(candidate.entityTypes?.join(', ') || 'No category')} · ${esc(candidate.geometry?.type || 'Unknown geometry')} · ${esc(candidate.sourceRef || 'No source reference')}</small></span>${candidate.possibleDuplicates?.length ? `<button type="button" class="possible-duplicate" data-import-duplicate="${esc(candidate.id)}">Possible duplicate (${candidate.possibleDuplicates.length})</button>` : '<span></span>'}<span class="status-pill ${geoStatusClass(candidate.validationStatus)}">${esc(candidate.validationStatus || 'PENDING')}</span></div>`).join('')}</div><div class="import-candidate-actions"><button type="button" class="secondary" id="geo-import-confirm-selected">Confirm selected</button><label>Promote as<select id="geo-import-target-status"><option value="CANDIDATE">CANDIDATE</option><option value="APPROVED">APPROVED</option></select></label><button type="button" class="primary" id="geo-import-process-selected">Queue selected</button></div><div class="import-candidate-pagination"><button type="button" class="secondary" id="geo-import-prev" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${data.page} of ${Math.max(1, Math.ceil(data.total / data.pageSize))}</span><button type="button" class="secondary" id="geo-import-next" ${!data.nextPage ? 'disabled' : ''}>Next</button></div>`;
   document.querySelectorAll('[data-import-candidate]').forEach(input => input.onchange = () => input.checked ? state.selected.add(input.dataset.importCandidate) : state.selected.delete(input.dataset.importCandidate));
   $('geo-import-select-page').onchange = event => { items.filter(item => item.validationStatus !== 'PROCESSED').forEach(item => event.target.checked ? state.selected.add(item.id) : state.selected.delete(item.id)); renderImportCandidateQueue(runId, data); };
   $('geo-import-select-all').onclick = () => selectAllImportCandidates(runId);
+  document.querySelectorAll('[data-import-duplicate]').forEach(button => button.onclick = () => showImportDuplicate(runId, button.dataset.importDuplicate));
   $('geo-import-page-size').onchange = event => { state.pageSize = Number(event.target.value); loadImportCandidates(runId, 1).catch(error => notify(error.message, 'error')); };
   $('geo-import-prev').onclick = () => loadImportCandidates(runId, data.page - 1).catch(error => notify(error.message, 'error'));
   $('geo-import-next').onclick = () => loadImportCandidates(runId, data.nextPage).catch(error => notify(error.message, 'error'));
   $('geo-import-confirm-selected').onclick = () => validateImportCandidates(runId);
   $('geo-import-process-selected').onclick = () => processImportCandidates(runId);
+}
+
+let importDuplicateMap = null;
+
+function duplicateGeometryLayer(geometry, style) {
+  return L.geoJSON({type:'Feature', geometry}, {style, pointToLayer:(_feature, latlng) => L.circleMarker(latlng, style)});
+}
+
+function showImportDuplicate(runId, candidateId) {
+  const candidate = candidateState(runId).items?.find(item => item.id === candidateId);
+  const duplicate = candidate?.possibleDuplicates?.[0];
+  const modal = $('geo-import-duplicate-modal');
+  const content = $('geo-import-duplicate-content');
+  if (!candidate || !duplicate || !modal || !content) return;
+  content.innerHTML = `<div class="import-duplicate-heading"><div><p class="eyebrow">POSSIBLE DUPLICATE</p><h2>Compare locations</h2><p class="muted">This pre-processed record is identical to, or less than 50 metres from, an existing entity. Review the map before confirming the import.</p></div><span class="status-pill warning">${esc(duplicate.matchType === 'IDENTICAL_GEOMETRY' ? 'Identical geometry' : `${duplicate.distanceMeters} m away`)}</span></div><div class="import-duplicate-legend"><span class="candidate-dot"></span>${esc(candidate.name || 'Incoming record')}<span class="existing-dot"></span>${esc(duplicate.name || 'Existing entity')}</div><div id="geo-duplicate-map" class="geo-duplicate-map" role="application" aria-label="Possible duplicate comparison map"></div><dl class="import-duplicate-details"><div><dt>Existing status</dt><dd>${esc(duplicate.status || 'UNKNOWN')}</dd></div><div><dt>Existing entity ID</dt><dd>${esc(duplicate.entityId || '')}</dd></div></dl>`;
+  if (!modal.open) modal.showModal();
+  if (importDuplicateMap) { importDuplicateMap.remove(); importDuplicateMap = null; }
+  if (!window.L || !candidate.geometry || !duplicate.geometry) return;
+  importDuplicateMap = L.map('geo-duplicate-map', {zoomControl:true, attributionControl:true, preferCanvas:true});
+  L.tileLayer(window.MYOTA_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:19, maxNativeZoom:19, noWrap:true, keepBuffer:1,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'
+  }).addTo(importDuplicateMap);
+  const candidateLayer = duplicateGeometryLayer(candidate.geometry, {color:'#f59e0b', fillColor:'#fbbf24', fillOpacity:0.35, weight:3}).addTo(importDuplicateMap);
+  const existingLayer = duplicateGeometryLayer(duplicate.geometry, {color:'#0f766e', fillColor:'#14b8a6', fillOpacity:0.3, weight:3}).addTo(importDuplicateMap);
+  const bounds = L.featureGroup([candidateLayer, existingLayer]).getBounds();
+  if (bounds.isValid()) importDuplicateMap.fitBounds(bounds, {padding:[30,30], maxZoom:18});
+  setTimeout(() => importDuplicateMap?.invalidateSize(), 0);
 }
 
 async function selectAllImportCandidates(runId) {
@@ -135,7 +166,9 @@ async function updateImportCategories() {
 
 async function submitGeodataImport(event) {
   event.preventDefault();
-  const format = $('geo-import-format').value;
+  const selectedFormat = $('geo-import-format').value;
+  const format = selectedFormat === 'OSM_GEOJSON' ? 'GEOJSON' : selectedFormat;
+  const adapter = selectedFormat === 'OSM_GEOJSON' ? 'OSM' : $('geo-import-adapter').value;
   const entityType = $('geo-import-category').value;
   if (!entityType) { notify('Choose a shared feature category before importing.', 'error'); return; }
   const source = {name: $('geo-import-source').value, license: $('geo-import-license').value || 'Not specified', attribution: $('geo-import-attribution').value, url: $('geo-import-source-url').value, retrievedAt: new Date().toISOString()};
@@ -148,9 +181,9 @@ async function submitGeodataImport(event) {
     if (file) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = ''; for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-      data = await api('/v1/geodata/imports/upload', {method:'POST', body:JSON.stringify({adapter:$('geo-import-adapter').value, format, entityType, source, filename:file.name, contentBase64:btoa(binary)}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+      data = await api('/v1/geodata/imports/upload', {method:'POST', body:JSON.stringify({adapter, format, entityType, source, filename:file.name, contentBase64:btoa(binary)}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     } else {
-      data = await api('/v1/geodata/imports', {method:'POST', body:JSON.stringify({adapter:$('geo-import-adapter').value, format, entityType, source, filename:$('geo-import-filename').value || undefined, content:pastedContent}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+      data = await api('/v1/geodata/imports', {method:'POST', body:JSON.stringify({adapter, format, entityType, source, filename:$('geo-import-filename').value || undefined, content:pastedContent}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     }
     notify(`Import pre-processing queued. Validate the normalized records from the run below.`, 'success');
     $('geo-import-form').reset(); updateImportFormat(); await updateImportCategories(); await refreshImportRuns();
@@ -159,9 +192,10 @@ async function submitGeodataImport(event) {
 
 async function renderGeodataImports() {
   const view = $('geodata-imports-view');
-  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">GEODATA INTAKE</p><h1>Geodata imports</h1><p class="muted">Upload or paste source data, choose a shared entity category, and pre-process it for administrator validation. Imports are platform-wide and are not assigned to a programme.</p></div><button class="secondary" id="geo-import-refresh">Refresh queue</button></div><article class="panel"><div class="panel-heading"><div><h2>Pre-process a dataset</h2><p class="field-help">Text formats can be pasted or uploaded. Binary formats are malware-scanned, stored in object storage, and queued for processing. Large pasted datasets are processed asynchronously and do not become entities until an administrator confirms them.</p></div></div><form id="geo-import-form" class="form-grid" novalidate><label>Entity category<select id="geo-import-category" required></select><small class="field-help">This list comes from the shared Master data catalogue. Programme assignment is handled separately.</small></label><label>Source adapter<select id="geo-import-adapter"><option value="MANUAL">Manual / supplied dataset</option><option value="GOVERNMENT_GIS">Government GIS</option><option value="OSM">OpenStreetMap</option><option value="PARKSERVE_US">ParkServe US</option></select></label><label>File format<select id="geo-import-format">${GEO_IMPORT_FORMATS.map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Source name<input id="geo-import-source" value="Administration import" required></label><label>Filename (when pasting)<input id="geo-import-filename" placeholder="parks.geojson"></label><label>Licence<input id="geo-import-license" placeholder="e.g. ODbL 1.0"></label><label>Attribution<input id="geo-import-attribution" placeholder="Required source attribution"></label><label class="wide">Source URL<input id="geo-import-source-url" type="url" placeholder="https://…"></label><label class="wide" id="geo-import-content-wrap">Paste source document<textarea id="geo-import-content" rows="14" placeholder="Paste GeoJSON, KML, GPX, WFS or ArcGIS JSON here"></textarea></label><label class="wide" id="geo-import-file-wrap">Upload file<input id="geo-import-file" type="file"><small id="geo-import-format-help" class="field-help"></small></label><div class="form-actions wide"><button class="primary" type="submit">Pre-process import for validation</button></div></form></article><article class="panel"><div class="panel-heading"><div><h2>Recent import runs</h2><p class="field-help">Click an import to view pre-processing status, validation records, promotion queues, source metadata, and errors.</p></div></div><div id="geo-import-runs" class="table-list"></div></article><dialog id="geo-import-modal" class="geo-import-modal"><div id="geo-import-summary"></div><div class="form-actions"><button type="button" class="secondary" id="geo-import-modal-refresh">Refresh summary</button><button type="button" class="primary" id="geo-import-modal-close">Close</button></div></dialog>`;
+  view.innerHTML = `<div class="page-heading"><div><p class="eyebrow">GEODATA INTAKE</p><h1>Geodata imports</h1><p class="muted">Upload or paste source data, choose a shared entity category, and pre-process it for administrator validation. Imports are platform-wide and are not assigned to a programme.</p></div><button class="secondary" id="geo-import-refresh">Refresh queue</button></div><article class="panel"><div class="panel-heading"><div><h2>Pre-process a dataset</h2><p class="field-help">Text formats can be pasted or uploaded. Binary formats are malware-scanned, stored in object storage, and queued for processing. Large pasted datasets are processed asynchronously and do not become entities until an administrator confirms them.</p></div></div><form id="geo-import-form" class="form-grid" novalidate><label>Entity category<select id="geo-import-category" required></select><small class="field-help">This list comes from the shared Master data catalogue. Programme assignment is handled separately.</small></label><label>Source adapter<select id="geo-import-adapter"><option value="MANUAL">Manual / supplied dataset</option><option value="GOVERNMENT_GIS">Government GIS</option><option value="OSM">OpenStreetMap</option><option value="PARKSERVE_US">ParkServe US</option></select></label><label>File format<select id="geo-import-format">${GEO_IMPORT_FORMATS.map(([value,label]) => `<option value="${value}">${label}</option>`).join('')}</select></label><label>Source name<input id="geo-import-source" value="Administration import" required></label><label>Filename (when pasting)<input id="geo-import-filename" placeholder="parks.geojson"></label><label>Licence<input id="geo-import-license" placeholder="e.g. ODbL 1.0"></label><label>Attribution<input id="geo-import-attribution" placeholder="Required source attribution"></label><label class="wide">Source URL<input id="geo-import-source-url" type="url" placeholder="https://…"></label><label class="wide" id="geo-import-content-wrap">Paste source document<textarea id="geo-import-content" rows="14" placeholder="Paste GeoJSON, OSM GeoJSON, KML, GPX, WFS or ArcGIS JSON here"></textarea></label><label class="wide" id="geo-import-file-wrap">Upload file<input id="geo-import-file" type="file"><small id="geo-import-format-help" class="field-help"></small></label><div class="form-actions wide"><button class="primary" type="submit">Pre-process import for validation</button></div></form></article><article class="panel"><div class="panel-heading"><div><h2>Recent import runs</h2><p class="field-help">Click an import to view pre-processing status, validation records, promotion queues, source metadata, and errors.</p></div></div><div id="geo-import-runs" class="table-list"></div></article><dialog id="geo-import-modal" class="geo-import-modal"><div id="geo-import-summary"></div><div class="form-actions"><button type="button" class="secondary" id="geo-import-modal-refresh">Refresh summary</button><button type="button" class="primary" id="geo-import-modal-close">Close</button></div></dialog><dialog id="geo-import-duplicate-modal" class="geo-import-duplicate-modal"><div id="geo-import-duplicate-content"></div><div class="form-actions"><button type="button" class="primary" id="geo-import-duplicate-close">Close</button></div></dialog>`;
   const form = $('geo-import-form'); form.noValidate = true; $('geo-import-format').onchange = updateImportFormat; form.onsubmit = submitGeodataImport; $('geo-import-refresh').onclick = refreshImportRuns;
   $('geo-import-modal-close').onclick = () => $('geo-import-modal').close();
+  $('geo-import-duplicate-close').onclick = () => { $('geo-import-duplicate-modal').close(); importDuplicateMap?.remove(); importDuplicateMap = null; };
   $('geo-import-modal-refresh').onclick = () => { const id = $('geo-import-summary').dataset.runId; if (id) showImportSummary(id); };
   updateImportFormat(); await updateImportCategories(); await refreshImportRuns();
 }
