@@ -30,6 +30,7 @@ the admin web should not absorb those participant-only responsibilities.
 - Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Asynchronous geodata import submission for pasted or uploaded datasets, optional paste text when a file is selected, and clickable import-run summaries with entity counts, provenance, and errors.
+- Pre-processing queue validation with candidate-name Leaflet map previews and explicit import finalization that discards staged records while retaining the run summary.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.

@@ -63,6 +63,15 @@ the confirmed records for promotion. The request body is bounded by the
 deployment's configured geodata import limit, and the run remains visible after
 the page is refreshed.
 
+Click a pre-processed record's name to open a Leaflet map preview centered on
+that record. This preview is informational and does not change its validation
+state. When the review is complete, use **Mark import as processed**. After
+confirmation, the service permanently removes the run's staged candidate and
+promotion-queue rows, records who finalized it, changes the run to
+`PROCESSED`, and keeps only the top-level import summary in the modal. Any
+entities already created by the promotion worker are not removed by this
+cleanup action.
+
 Click any run in **Recent import runs** to open its summary. The modal shows
 the lifecycle status, timestamps, selected categories, source licence and
 attribution, source hash/change information, counts of pre-processed and

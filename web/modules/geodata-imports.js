@@ -42,9 +42,14 @@ function candidateState(runId) {
 function renderImportSummary(run) {
   const stats = [['Pre-processed', 'preprocessed'], ['Entities added', 'created'], ['Entities updated', 'updated'], ['Skipped features', 'skipped'], ['Errors', 'errors']];
   const manifest = run.manifest || {};
+  const finalized = String(run.status || '').toUpperCase() === 'PROCESSED';
   const summary = $('geo-import-summary');
   summary.dataset.runId = run.id || run.importRunId || '';
   summary.innerHTML = `<div class="import-summary-heading"><div><p class="eyebrow">IMPORT RUN</p><h2>${esc(run.filename || run.format || 'Dataset import')}</h2><p class="muted">${esc(run.adapter || 'MANUAL')} · ${esc(run.format || 'GEOJSON')} · ${esc(run.entityTypes?.join(', ') || run.entityType || 'No category')}</p></div><span class="status-pill ${geoStatusClass(run.status)}">${esc(run.status || 'QUEUED')}</span></div><div class="import-summary-metrics">${stats.map(([label,key]) => `<div class="metric"><span>${label}</span><strong>${importRunCount(run, key)}</strong></div>`).join('')}</div><dl class="import-summary-details"><div><dt>Run ID</dt><dd>${esc(run.id || run.importRunId || '')}</dd></div><div><dt>Queued</dt><dd>${esc(run.queuedAt || '')}</dd></div><div><dt>Started</dt><dd>${esc(run.startedAt || 'Not started')}</dd></div><div><dt>Completed</dt><dd>${esc(run.completedAt || 'Still processing')}</dd></div><div><dt>Source</dt><dd>${esc(run.source?.name || 'Not specified')}</dd></div><div><dt>Licence / attribution</dt><dd>${esc([run.source?.license, run.source?.attribution].filter(Boolean).join(' · ') || 'Not specified')}</dd></div><div><dt>Source hash</dt><dd>${esc(run.source?.sha256 || manifest.sourceHash || 'Not available')}</dd></div><div><dt>Source changed</dt><dd>${manifest.sourceChanged == null ? 'Not available' : manifest.sourceChanged ? 'Yes' : 'No'}</dd></div></dl><section id="geo-import-candidates" class="import-candidate-queue"><h3>Validate pre-processed records</h3><p class="field-help">These records have been normalized but are not entities yet. Select records to confirm them, then choose whether the processing queue should create candidates or approve them directly.</p><div class="import-candidate-loading muted">Loading pre-processed records…</div></section>${run.errors?.length ? `<section class="import-summary-errors"><h3>Processing errors</h3><ul>${run.errors.map(error => `<li>${esc(error.message || error.detail || JSON.stringify(error))}</li>`).join('')}</ul></section>` : ''}`;
+  if (finalized) {
+    summary.querySelector('#geo-import-candidates')?.remove();
+    summary.querySelector('.import-summary-errors')?.remove();
+  }
   const dialog = $('geo-import-modal');
   if (dialog && !dialog.open) dialog.showModal();
 }
@@ -53,7 +58,8 @@ async function showImportSummary(runId) {
   try {
     const run = await api(`/v1/geodata/imports/${encodeURIComponent(runId)}`);
     renderImportSummary(run);
-    await loadImportCandidates(runId);
+    const finalized = String(run.status || '').toUpperCase() === 'PROCESSED';
+    if (!finalized) await loadImportCandidates(runId);
   } catch (error) { notify(error.message, 'error'); }
 }
 
@@ -72,19 +78,22 @@ function renderImportCandidateQueue(runId, data) {
   const state = candidateState(runId);
   const items = data.items || [];
   if (!data.total) {
-    root.innerHTML = `<h3>Validate pre-processed records</h3><p class="muted empty">No pre-processed records are available for this run.</p>`;
+    root.innerHTML = `<h3>Validate pre-processed records</h3><p class="muted empty">No pre-processed records are available for this run.</p><button type="button" class="danger-outline" id="geo-import-mark-processed">Mark import as processed</button>`;
+    $('geo-import-mark-processed').onclick = () => markImportProcessed(runId);
     return;
   }
-  root.innerHTML = `<div class="section-heading"><div><h3>Validate pre-processed records</h3><p class="field-help">Select individual records or select every record in the run. Confirmed records can then be sent to the CANDIDATE or APPROVED queue.</p></div><strong class="muted">${data.total} total</strong></div><div class="import-candidate-toolbar"><label class="checkbox-label"><input type="checkbox" id="geo-import-select-page"> Select page</label><button type="button" class="secondary" id="geo-import-select-all">Select all records</button><label>Page size<select id="geo-import-page-size"><option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option><option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option><option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option></select></label></div><div class="import-candidate-list">${items.map(candidate => `<div class="import-candidate-row"><input type="checkbox" data-import-candidate="${esc(candidate.id)}" ${state.selected.has(candidate.id) ? 'checked' : ''} ${candidate.validationStatus === 'PROCESSED' ? 'disabled' : ''}><span><strong>${esc(candidate.name || 'Unnamed candidate')}</strong><small>${esc(candidate.entityTypes?.join(', ') || 'No category')} · ${esc(candidate.geometry?.type || 'Unknown geometry')} · ${esc(candidate.sourceRef || 'No source reference')}</small></span>${candidate.possibleDuplicates?.length ? `<button type="button" class="possible-duplicate" data-import-duplicate="${esc(candidate.id)}">Possible duplicate (${candidate.possibleDuplicates.length})</button>` : '<span></span>'}<span class="status-pill ${geoStatusClass(candidate.validationStatus)}">${esc(candidate.validationStatus || 'PENDING')}</span></div>`).join('')}</div><div class="import-candidate-actions"><button type="button" class="secondary" id="geo-import-confirm-selected">Confirm selected</button><label>Promote as<select id="geo-import-target-status"><option value="CANDIDATE">CANDIDATE</option><option value="APPROVED">APPROVED</option></select></label><button type="button" class="primary" id="geo-import-process-selected">Queue selected</button></div><div class="import-candidate-pagination"><button type="button" class="secondary" id="geo-import-prev" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${data.page} of ${Math.max(1, Math.ceil(data.total / data.pageSize))}</span><button type="button" class="secondary" id="geo-import-next" ${!data.nextPage ? 'disabled' : ''}>Next</button></div>`;
+  root.innerHTML = `<div class="section-heading"><div><h3>Validate pre-processed records</h3><p class="field-help">Select individual records or select every record in the run. Confirmed records can then be sent to the CANDIDATE or APPROVED queue.</p></div><strong class="muted">${data.total} total</strong></div><div class="import-candidate-toolbar"><label class="checkbox-label"><input type="checkbox" id="geo-import-select-page"> Select page</label><button type="button" class="secondary" id="geo-import-select-all">Select all records</button><label>Page size<select id="geo-import-page-size"><option value="10" ${state.pageSize === 10 ? 'selected' : ''}>10</option><option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option><option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option></select></label></div><div class="import-candidate-list">${items.map(candidate => `<div class="import-candidate-row"><input type="checkbox" data-import-candidate="${esc(candidate.id)}" ${state.selected.has(candidate.id) ? 'checked' : ''} ${candidate.validationStatus === 'PROCESSED' ? 'disabled' : ''}><button type="button" class="import-candidate-name" data-import-candidate-map="${esc(candidate.id)}"><strong>${esc(candidate.name || 'Unnamed candidate')}</strong><small>${esc(candidate.entityTypes?.join(', ') || 'No category')} · ${esc(candidate.geometry?.type || 'Unknown geometry')} · ${esc(candidate.sourceRef || 'No source reference')}</small></button>${candidate.possibleDuplicates?.length ? `<button type="button" class="possible-duplicate" data-import-duplicate="${esc(candidate.id)}">Possible duplicate (${candidate.possibleDuplicates.length})</button>` : '<span></span>'}<span class="status-pill ${geoStatusClass(candidate.validationStatus)}">${esc(candidate.validationStatus || 'PENDING')}</span></div>`).join('')}</div><div class="import-candidate-actions"><button type="button" class="secondary" id="geo-import-confirm-selected">Confirm selected</button><label>Promote as<select id="geo-import-target-status"><option value="CANDIDATE">CANDIDATE</option><option value="APPROVED">APPROVED</option></select></label><button type="button" class="primary" id="geo-import-process-selected">Queue selected</button><button type="button" class="danger-outline" id="geo-import-mark-processed">Mark import as processed</button></div><div class="import-candidate-pagination"><button type="button" class="secondary" id="geo-import-prev" ${data.page <= 1 ? 'disabled' : ''}>Previous</button><span>Page ${data.page} of ${Math.max(1, Math.ceil(data.total / data.pageSize))}</span><button type="button" class="secondary" id="geo-import-next" ${!data.nextPage ? 'disabled' : ''}>Next</button></div>`;
   document.querySelectorAll('[data-import-candidate]').forEach(input => input.onchange = () => input.checked ? state.selected.add(input.dataset.importCandidate) : state.selected.delete(input.dataset.importCandidate));
   $('geo-import-select-page').onchange = event => { items.filter(item => item.validationStatus !== 'PROCESSED').forEach(item => event.target.checked ? state.selected.add(item.id) : state.selected.delete(item.id)); renderImportCandidateQueue(runId, data); };
   $('geo-import-select-all').onclick = () => selectAllImportCandidates(runId);
   document.querySelectorAll('[data-import-duplicate]').forEach(button => button.onclick = () => showImportDuplicate(runId, button.dataset.importDuplicate));
+  document.querySelectorAll('[data-import-candidate-map]').forEach(button => button.onclick = () => showImportCandidateMap(runId, button.dataset.importCandidateMap));
   $('geo-import-page-size').onchange = event => { state.pageSize = Number(event.target.value); loadImportCandidates(runId, 1).catch(error => notify(error.message, 'error')); };
   $('geo-import-prev').onclick = () => loadImportCandidates(runId, data.page - 1).catch(error => notify(error.message, 'error'));
   $('geo-import-next').onclick = () => loadImportCandidates(runId, data.nextPage).catch(error => notify(error.message, 'error'));
   $('geo-import-confirm-selected').onclick = () => validateImportCandidates(runId);
   $('geo-import-process-selected').onclick = () => processImportCandidates(runId);
+  $('geo-import-mark-processed').onclick = () => markImportProcessed(runId);
 }
 
 let importDuplicateMap = null;
@@ -112,6 +121,27 @@ function showImportDuplicate(runId, candidateId) {
   const existingLayer = duplicateGeometryLayer(duplicate.geometry, {color:'#0f766e', fillColor:'#14b8a6', fillOpacity:0.3, weight:3}).addTo(importDuplicateMap);
   const bounds = L.featureGroup([candidateLayer, existingLayer]).getBounds();
   if (bounds.isValid()) importDuplicateMap.fitBounds(bounds, {padding:[30,30], maxZoom:18});
+  setTimeout(() => importDuplicateMap?.invalidateSize(), 0);
+}
+
+function showImportCandidateMap(runId, candidateId) {
+  const candidate = candidateState(runId).items?.find(item => item.id === candidateId);
+  const modal = $('geo-import-duplicate-modal');
+  const content = $('geo-import-duplicate-content');
+  if (!candidate || !candidate.geometry || !modal || !content) return;
+  content.innerHTML = `<div class="import-duplicate-heading"><div><p class="eyebrow">PRE-PROCESSED RECORD</p><h2>${esc(candidate.name || 'Unnamed candidate')}</h2><p class="muted">Location preview for the incoming record. This does not change or approve the entity.</p></div><span class="status-pill ${geoStatusClass(candidate.validationStatus)}">${esc(candidate.validationStatus || 'PENDING')}</span></div><div id="geo-duplicate-map" class="geo-duplicate-map" role="application" aria-label="Pre-processed entity location map"></div><dl class="import-duplicate-details"><div><dt>Geometry</dt><dd>${esc(candidate.geometry.type || 'Unknown')}</dd></div><div><dt>Category</dt><dd>${esc(candidate.entityTypes?.join(', ') || 'No category')}</dd></div><div><dt>Source reference</dt><dd>${esc(candidate.sourceRef || 'Not specified')}</dd></div></dl>`;
+  if (!modal.open) modal.showModal();
+  if (importDuplicateMap) { importDuplicateMap.remove(); importDuplicateMap = null; }
+  if (!window.L) return;
+  importDuplicateMap = L.map('geo-duplicate-map', {zoomControl:true, attributionControl:true, preferCanvas:true});
+  L.tileLayer(window.MYOTA_TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom:19, maxNativeZoom:19, noWrap:true, keepBuffer:1,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'
+  }).addTo(importDuplicateMap);
+  const layer = duplicateGeometryLayer(candidate.geometry, {color:'#f59e0b', fillColor:'#fbbf24', fillOpacity:0.35, weight:3}).addTo(importDuplicateMap);
+  const bounds = layer.getBounds();
+  if (bounds.isValid() && bounds.getNorthEast().equals(bounds.getSouthWest())) importDuplicateMap.setView(bounds.getCenter(), 16);
+  else if (bounds.isValid()) importDuplicateMap.fitBounds(bounds, {padding:[30,30], maxZoom:18});
   setTimeout(() => importDuplicateMap?.invalidateSize(), 0);
 }
 
@@ -146,6 +176,17 @@ async function processImportCandidates(runId) {
     const targetStatus = $('geo-import-target-status').value;
     await api(`/v1/geodata/imports/${encodeURIComponent(runId)}/process`, {method:'POST', body:JSON.stringify({candidateIds, targetStatus, processorId:state.account.id, note:'Promoted from the validated import queue'}), headers:{'Idempotency-Key':crypto.randomUUID()}});
     notify(`Selected records queued as ${targetStatus}.`, 'success'); await showImportSummary(runId);
+  } catch (error) { notify(error.message, 'error'); }
+}
+
+async function markImportProcessed(runId) {
+  if (!window.confirm('Mark this import as processed? All staged processed and pending records, including their validation queue data, will be permanently deleted. Existing entities will not be changed.')) return;
+  try {
+    await api(`/v1/geodata/imports/${encodeURIComponent(runId)}/processed`, {method:'POST', body:JSON.stringify({processedBy:state.account.id}), headers:{'Idempotency-Key':crypto.randomUUID()}});
+    importCandidateState.delete(runId);
+    notify('Import marked as processed; staged records were removed.', 'success');
+    await showImportSummary(runId);
+    await refreshImportRuns();
   } catch (error) { notify(error.message, 'error'); }
 }
 
