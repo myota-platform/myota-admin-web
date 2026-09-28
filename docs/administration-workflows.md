@@ -78,6 +78,8 @@ attribution, source hash/change information, counts of pre-processed and
 promoted records, disappeared records, and processing errors. Imports are
 programme-independent. No pre-processed record is an entity until it has been
 confirmed and promoted through the separate NATS-backed processing queue.
+The run list is ordered newest-first so newly submitted files remain visible
+on the first page of the history and pre-processing queue.
 
 Records with identical geometry or an existing entity within 50 metres show a
 **Possible duplicate** warning. Select that warning to open a Leaflet comparison
