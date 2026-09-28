@@ -26,7 +26,7 @@ let geoReviewPageSize = 25;
 let geoReviewTotal = 0;
 let geoReviewLocationOptions = [];
 let geoBulkSelectedIds = new Set();
-function geoIsGlobalAdmin() { try { const payload = JSON.parse(atob(token().split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return (payload.scp || []).includes('*') || (payload.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } catch (_) { return (state.account?.scopes || []).includes('*') || (state.account?.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } }
+function geoIsGlobalAdmin() { try { const payload = JSON.parse(atob(token().split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return (payload.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } catch (_) { return (state.account?.roles || []).some(role => ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(role.role || '').toUpperCase())); } }
 
 function geoLeafletStatusStyle(status, selected = false) {
   const colors = {
@@ -812,7 +812,7 @@ function geoWorkspaceMarkup(mode) {
     ? '<button class="primary" id="geo-draw-toggle" type="button">New candidate</button>'
     : '<span class="field-help workspace-note">Editing is available only for the selected entity below the map.</span>';
   const bulk = review
-    ? '<div class="geo-bulk-toolbar"><label class="bulk-select-all"><input id="geo-select-all" type="checkbox"> Select all on this page</label><span id="geo-selection-count" class="muted" aria-live="polite">0 selected</span><div class="geo-bulk-actions"><button class="approve" id="geo-bulk-approve" type="button" disabled>Change status to approved</button></div></div>'
+    ? `<div class="geo-bulk-toolbar"><label class="bulk-select-all"><input id="geo-select-all" type="checkbox"> Select all on this page</label><span id="geo-selection-count" class="muted" aria-live="polite">0 selected</span><div class="geo-bulk-actions"><button class="approve" id="geo-bulk-approve" type="button" disabled>Change status to approved</button>${geoIsGlobalAdmin() ? '<button class="danger-button" id="geo-bulk-delete" type="button" disabled>Delete entities permanently</button>' : ''}</div></div>`
     : '<div class="geo-bulk-toolbar"><span class="field-help">Select an entity to open its management tools.</span></div>';
   const inspectorIntro = review
     ? 'Choose an item from the results to review its source and record a lifecycle decision.'
