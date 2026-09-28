@@ -47,6 +47,12 @@ For OpenStreetMap exports, select **OpenStreetMap GeoJSON**. The service uses
 the OSM adapter, preserves ODbL attribution/source references, and applies the
 configured OSM tag filter before records enter the validation queue.
 
+Active pre-processed runs are shown in a dedicated **Pre-processing queue** on
+the imports page. This queue is intentionally separate from Geodata Review:
+records remain normalized candidates until an administrator confirms them and
+queues their promotion. The import history below it contains completed and
+failed runs.
+
 Submitting a text dataset returns immediately with a `QUEUED` import run. Text
 parsing, geometry normalization, reverse-geocoding, and deduplication run
 asynchronously, so large pasted FeatureCollections do not hold the browser
