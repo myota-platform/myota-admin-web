@@ -54,5 +54,10 @@
 .toolbar-field select,.toolbar-field input{min-height:40px}
 .empty{color:var(--muted);font-size:13px}
 .loading-card{color:var(--muted)}
+button:disabled{cursor:not-allowed;opacity:.55}
+.danger-button:hover,.danger-outline:hover{background:#fff0ef}
+.approve:hover{background:#c9ecdf}
+.geo-entity-open[aria-current="true"]{color:var(--primary-dark)}
+.geo-entity-open[aria-current="true"] strong{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
 @media(max-width:900px){.top-programme-context span{display:none}.top-programme-context select{max-width:145px}.sidebar{gap:14px}}
 @media(max-width:700px){.top-actions{gap:7px}.top-programme-context{padding:4px}.top-programme-context select{max-width:120px}.account-label{display:none}.sidebar-footer{padding-top:12px}}
