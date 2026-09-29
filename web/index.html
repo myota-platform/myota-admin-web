@@ -35,24 +35,16 @@
     <header class="topbar">
       <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation">☰</button>
       <a class="brand" href="#dashboard"><span class="brand-mark">M</span><span><strong>MyOTA</strong><small>Administration</small></span></a>
-      <div class="top-actions"><span id="api-status" class="status-dot pending">Checking API…</span><span id="account-label"></span><button id="logout" class="quiet">Sign out</button></div>
+      <div class="top-actions"><label class="top-programme-context"><span>Programme scope</span><select id="programme-context" aria-label="Programme scope"><option value="">All programmes</option></select></label><span id="api-status" class="status-dot pending">Checking API…</span><span id="account-label" class="account-label"></span><button id="logout" class="quiet">Sign out</button></div>
     </header>
     <div class="app-layout">
       <aside id="sidebar" class="sidebar" aria-label="Administration navigation">
         <p class="nav-label">Workspace</p>
-        <button class="nav-item active" data-view="dashboard"><span>⌂</span> Dashboard</button>
-        <button class="nav-item" data-view="programmes"><span>◈</span> Programmes</button>
-        <button class="nav-item" data-view="master-data"><span>▦</span> Master data</button>
-        <button class="nav-item" data-view="geodata"><span>⌖</span> Geodata review</button>
-        <button class="nav-item" data-view="entity-management"><span>✎</span> Entity management</button>
-        <button class="nav-item" data-view="entity-map"><span>◉</span> Entity map</button>
-        <button class="nav-item" data-view="geodata-imports"><span>⇧</span> Geodata imports</button>
-        <button class="nav-item" data-view="policies"><span>✓</span> Rules & awards</button>
-        <button class="nav-item" data-view="awards"><span>▣</span> Award certificates</button>
-        <button class="nav-item" data-view="content"><span>文</span> Content & translations</button>
-        <button class="nav-item" data-view="identity"><span>◎</span> Identity</button>
-        <button class="nav-item" data-view="activity"><span>◷</span> Activity</button>
-        <div class="sidebar-footer"><span class="small-label">Programme context</span><select id="programme-context"><option value="">All programmes</option></select></div>
+        <div class="nav-section"><p class="nav-section-label">Overview</p><button class="nav-item active" data-view="dashboard"><span class="nav-item-icon" aria-hidden="true">⌂</span> Dashboard</button></div>
+        <div class="nav-section"><p class="nav-section-label">Programme setup</p><button class="nav-item" data-view="programmes"><span class="nav-item-icon" aria-hidden="true">◈</span> Programmes</button><button class="nav-item" data-view="policies"><span class="nav-item-icon" aria-hidden="true">✓</span> Programme policy</button><button class="nav-item" data-view="content"><span class="nav-item-icon" aria-hidden="true">文</span> Content & translations</button><button class="nav-item" data-view="master-data"><span class="nav-item-icon" aria-hidden="true">▦</span> Shared catalogue</button></div>
+        <div class="nav-section"><p class="nav-section-label">Geodata</p><button class="nav-item" data-view="geodata"><span class="nav-item-icon" aria-hidden="true">⌖</span> Review queue</button><button class="nav-item" data-view="geodata-imports"><span class="nav-item-icon" aria-hidden="true">⇧</span> Imports</button><button class="nav-item" data-view="entity-management"><span class="nav-item-icon" aria-hidden="true">✎</span> Entity catalogue</button><button class="nav-item" data-view="entity-map"><span class="nav-item-icon" aria-hidden="true">◉</span> Map explorer</button></div>
+        <div class="nav-section"><p class="nav-section-label">Operations & access</p><button class="nav-item" data-view="activity"><span class="nav-item-icon" aria-hidden="true">◷</span> Activations & QSOs</button><button class="nav-item" data-view="awards"><span class="nav-item-icon" aria-hidden="true">▣</span> Award certificates</button><button class="nav-item" data-view="identity"><span class="nav-item-icon" aria-hidden="true">◎</span> Users & roles</button></div>
+        <div class="sidebar-footer"><p class="scope-note">Use the programme scope in the top bar to filter programme-owned work. Platform-wide geodata imports remain unassigned.</p></div>
       </aside>
       <main class="content">
         <div class="breadcrumbs"><span>MyOTA</span><span>/</span><strong id="breadcrumb">Dashboard</strong></div>

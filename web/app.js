@@ -11,6 +11,7 @@ function bindApplicationShell() {
 
   $('programme-context').onchange = event => {
     state.currentProgramme = event.target.value;
+    notify(event.target.value ? `Programme scope changed to ${event.target.options[event.target.selectedIndex].text}.` : 'Programme scope set to all programmes.', 'info');
   };
   $('mobile-menu').onclick = () => $('sidebar').classList.toggle('open');
   $('login-form').onsubmit = login;
