@@ -4,8 +4,9 @@ import { useRoute } from 'vue-router';
 
 const route = useRoute();
 const legacyPath = computed(() => {
-  const path = route.path.replace(/^\//, '') || 'dashboard';
-  return `/legacy/index.html#${encodeURIComponent(path)}`;
+  const value = route.params.pathMatch;
+  const path = Array.isArray(value) ? value.join('/') : String(value || 'dashboard');
+  return `/legacy/index.html#${encodeURIComponent(path || 'dashboard')}`;
 });
 </script>
 

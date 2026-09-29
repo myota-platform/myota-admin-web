@@ -52,7 +52,7 @@ async function signOut(): Promise<void> { store.signOut(); await router.push('/l
         <p class="nav-section-label">{{ section.label }}</p>
         <RouterLink v-for="item in section.items" :key="item.path" class="nav-item" :class="{ active: isActive(item.path) }" :aria-current="isActive(item.path) ? 'page' : undefined" :to="item.path" @click="sidebarOpen = false"><span class="nav-item-icon" aria-hidden="true">{{ item.icon }}</span>{{ item.label }}</RouterLink>
       </nav>
-      <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p></div>
+      <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p><RouterLink class="legacy-link" to="/legacy/dashboard">Open legacy compatibility workspace</RouterLink></div>
     </aside>
     <main class="content">
       <div class="breadcrumbs"><span>MyOTA</span><span>/</span><strong>{{ pageTitle }}</strong></div>
