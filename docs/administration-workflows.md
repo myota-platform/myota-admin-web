@@ -90,9 +90,12 @@ legitimate update, a separate entity, or should be rejected.
 ## Entity map
 
 The **Entity map** page is a read-only Leaflet view of the complete stored
-geodata catalogue. It loads the paged entity API, renders all entity locations
-through Leaflet.markercluster, keeps line and polygon geometries visible as
-selectable overlays, and fits the initial view to the available data.
+geodata catalogue. It loads the paged entity API, clusters point markers with
+Leaflet.markercluster using chunked loading and spiderfy-at-maximum-zoom,
+keeps line and polygon geometries visible as individually selectable overlays,
+and fits the initial view to the available data. The review and management
+maps use the same behavior; the point currently being edited stays outside
+the cluster so its geometry editor remains directly addressable.
 Selecting a shape or clustered marker opens a popup containing the entity name,
 stored location metadata, all shared category codes/labels, and the programmes
 that explicitly contain the entity or are assigned one of its categories. The
