@@ -79,7 +79,8 @@ compatibility format and geometry type rules, are documented in
 ## Local run
 
 For local development, install dependencies and start Vite. Its development
-proxy sends API requests to `http://localhost:8080` by default:
+proxy listens on `http://localhost:8090` and sends API requests to
+`http://localhost:8080` by default:
 
 ```bash
 npm install
