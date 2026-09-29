@@ -38,6 +38,33 @@ the admin web should not absorb those participant-only responsibilities.
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
 
+## Vue migration feature branch
+
+The `feature/admin-vue-migration` branch introduces a Vue 3 + TypeScript +
+Vite application without changing `main`. The first vertical slice migrates
+the authenticated shell, login/session handling, programme scope, navigation,
+and dashboard. Pinia owns the small amount of cross-page client state; API
+requests remain service-owned and are isolated in `src/lib/api.ts`.
+
+The branch uses a strangler migration boundary: screens that have not yet been
+migrated remain available in the proven implementation inside the Vue
+compatibility workspace. This keeps the existing review, import, identity,
+award, and activity workflows usable while each domain is moved to typed Vue
+components. The compatibility assets are packaged under `/legacy` during the
+Vite build and are not part of the main branch deployment.
+
+The next migration slice is Geodata Imports, followed by Geodata Review and
+Entity Management. Leaflet and Geoman will be isolated behind a map adapter so
+the map lifecycle does not leak into page components.
+
+Local validation on this branch:
+
+```bash
+npm install
+npm run typecheck
+npm run build
+```
+
 ## Map tiles and editing
 
 The review map uses vendored, pinned Leaflet and Leaflet-Geoman assets. The
