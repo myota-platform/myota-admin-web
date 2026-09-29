@@ -47,10 +47,10 @@ remain owned by `myota-activity-service`; geodata imports remain deliberately
 programme-independent. Programme configuration only links to those resources
 and defines the programme's acceptance and execution policy.
 
-## Entity categories (JSON compatibility field)
+## Entity categories (JSON compatibility projection)
 
 Entity categories are shared Master data, not owned by one programme. The
-Programme Editor keeps its legacy JSON field for compatibility, while the
+Programme Editor keeps its JSON projection for compatibility, while the
 Master data page defines the catalogue and Programme Management assigns shared
 categories to one or more programmes. Geodata imports and review use the full
 database-backed catalogue even when an entity has no programme assignment.

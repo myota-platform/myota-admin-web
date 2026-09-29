@@ -38,24 +38,16 @@ the admin web should not absorb those participant-only responsibilities.
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
 
-## Vue migration feature branch
+## Vue application
 
-The `feature/admin-vue-migration` branch introduces a Vue 3 + TypeScript +
-Vite application without changing `main`. The first vertical slice migrates
-the authenticated shell, login/session handling, programme scope, navigation,
-and dashboard. Pinia owns the small amount of cross-page client state; API
-requests remain service-owned and are isolated in `src/lib/api.ts`.
+The `feature/admin-vue-migration` branch contains the complete Vue 3 +
+TypeScript + Vite administration application. All administration routes use
+typed Vue components; Pinia owns the small amount of cross-page client state,
+and API requests remain service-owned and isolated in `src/lib/api.ts`.
 
-The branch uses a strangler migration boundary: screens that have not yet been
-migrated remain available in the proven implementation inside the Vue
-compatibility workspace. This keeps the existing review, import, identity,
-award, and activity workflows usable while each domain is moved to typed Vue
-components. The compatibility assets are packaged under `/legacy` during the
-Vite build and are not part of the main branch deployment.
-
-The next migration slice is Geodata Imports, followed by Geodata Review and
-Entity Management. Leaflet and Geoman will be isolated behind a map adapter so
-the map lifecycle does not leak into page components.
+Leaflet, MarkerCluster, and Geoman are pinned under `public/vendor` so the
+application can use the same map runtime in development, production builds,
+and the local Compose deployment without a separate compatibility server.
 
 Local validation on this branch:
 
@@ -80,15 +72,23 @@ that proxy must provide an identifiable User-Agent and follow the provider’s
 terms. See the [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
 before changing the tile provider or request behavior.
 
-Programme configuration details, including the legacy shared Entity Categories
-JSON compatibility format and geometry type rules, are documented in
+Programme configuration details, including the shared Entity Categories JSON
+compatibility format and geometry type rules, are documented in
 [`docs/programme-configuration.md`](docs/programme-configuration.md).
 
 ## Local run
 
-Serve `web/` with any static server and set the API base to the gateway,
-normally `http://localhost:8080`. The deployment Compose manifest starts this
-UI on `http://localhost:8090`.
+For local development, install dependencies and start Vite. Its development
+proxy sends API requests to `http://localhost:8080` by default:
+
+```bash
+npm install
+npm run dev
+```
+
+For a production-style local preview, run `npm run build` followed by
+`npm run preview`. The deployment Compose manifest starts this UI on
+`http://localhost:8090`.
 
 Award background and signature binaries are addressed by object keys in the
 admin UI and can be uploaded through presigned SeaweedFS/S3 URLs. Local Compose
