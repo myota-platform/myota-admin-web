@@ -19,7 +19,6 @@ const candidateDetail = ref<ImportCandidate | null>(null); const candidateMapEnt
 
 function unwrap<T>(data: T | { items?: T }): T { return (data && typeof data === 'object' && 'items' in (data as object) ? (data as { items: T }).items : data) as T; }
 function setError(value: unknown): void { error.value = value instanceof Error ? value.message : String(value); }
-function readAsBase64(value: ArrayBuffer): string { let binary = ''; const bytes = new Uint8Array(value); const chunk = 0x8000; for (let offset = 0; offset < bytes.length; offset += chunk) binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunk, bytes.length))); return btoa(binary); }
 async function loadCategories(): Promise<void> { try { const data = await apiRequest<{ items: EntityCategory[] }>('/v1/entity-types'); categories.value = data.items || []; } catch (e) { setError(e); } }
 async function loadImports(): Promise<void> { try { const [history, active] = await Promise.all([apiRequest<{ items: ImportRun[]; total?: number }>(`/v1/geodata/imports?page=${importPage.value}&pageSize=${importPageSize}`), apiRequest<{ items: ImportRun[] }>('/v1/geodata/imports?page=1&pageSize=100')]); imports.value = history.items || []; importTotal.value = Number(history.total ?? imports.value.length); preprocessingRuns.value = active.items || []; } catch (e) { setError(e); } }
 async function setImportPage(nextPage: number): Promise<void> { const pageCount = Math.max(1, Math.ceil(importTotal.value / importPageSize)); importPage.value = Math.min(Math.max(1, nextPage), pageCount); await loadImports(); }
@@ -34,8 +33,10 @@ async function queueImport(): Promise<void> {
     const requestAdapter = format.value === 'OSM_GEOJSON' ? 'OSM' : adapter.value;
     const sourceMetadata = { name: source.value, license: sourceLicense.value || 'Not specified', attribution: sourceAttribution.value, url: sourceUrl.value, retrievedAt: new Date().toISOString() };
     if (file.value) {
-      const body = { adapter: requestAdapter, format: requestFormat, entityType: entityType.value, source: sourceMetadata, filename: file.value.name, contentBase64: readAsBase64(await file.value.arrayBuffer()) };
-      await apiRequest('/v1/geodata/imports/upload', { method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': crypto.randomUUID() } });
+      const multipart = new FormData();
+      multipart.append('metadata', JSON.stringify({ adapter: requestAdapter, format: requestFormat, entityType: entityType.value, source: sourceMetadata, filename: file.value.name }));
+      multipart.append('file', file.value, file.value.name);
+      await apiRequest('/v1/geodata/imports/upload', { method: 'POST', body: multipart, headers: { 'Idempotency-Key': crypto.randomUUID() } });
     } else {
       await apiRequest('/v1/geodata/imports', { method: 'POST', body: JSON.stringify({ adapter: requestAdapter, format: requestFormat, entityType: entityType.value, source: sourceMetadata, filename: filename.value || `pasted-${format.value.toLowerCase()}`, content: content.value }), headers: { 'Idempotency-Key': crypto.randomUUID() } });
     }

@@ -39,7 +39,11 @@ async function refreshSession(): Promise<boolean> {
 export async function apiRequest<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set('Accept', 'application/json');
-  if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  // FormData must keep the browser-generated multipart boundary. Treating it
+  // as JSON forces large files through an in-memory string conversion.
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   const token = accessToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
   const method = (options.method || 'GET').toUpperCase();
