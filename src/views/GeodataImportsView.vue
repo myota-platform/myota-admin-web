@@ -13,7 +13,7 @@ const categories = ref<EntityCategory[]>([]); const imports = ref<ImportRun[]>([
 const format = ref('GEOJSON'); const adapter = ref('MANUAL'); const entityType = ref(''); const filename = ref(''); const source = ref('MANUAL'); const sourceLicense = ref(''); const sourceAttribution = ref(''); const sourceUrl = ref(''); const content = ref(''); const file = ref<File | null>(null); const busy = ref(false); const selectingAll = ref(false); const message = ref(''); const error = ref('');
 const formats = ['GEOJSON', 'OSM_GEOJSON', 'KML', 'GPX', 'SHAPEFILE', 'OSM_PBF', 'PARKSERVE_US', 'WFS', 'ARCGIS_FEATURESERVER'];
 const activeImports = computed(() => preprocessingRuns.value.filter(item => !['PROCESSED', 'FAILED', 'REJECTED'].includes(String(item.status || '').toUpperCase())));
-const preprocessingImports = computed(() => preprocessingRuns.value.filter(item => ['QUEUED', 'PROCESSING', 'PREPROCESSED', 'PREPROCESSED_WITH_ERRORS'].includes(String(item.status || '').toUpperCase())));
+const preprocessingImports = computed(() => preprocessingRuns.value.filter(item => !['PROCESSED', 'FAILED', 'REJECTED', 'COMPLETED', 'COMPLETED_WITH_ERRORS'].includes(String(item.status || '').toUpperCase())));
 const allSelected = computed(() => totalCandidates.value > 0 && selectedCandidateIds.value.length >= totalCandidates.value);
 const candidateDetail = ref<ImportCandidate | null>(null); const candidateMapEntities = ref<GeoEntity[]>([]);
 
