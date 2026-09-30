@@ -42,7 +42,12 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}, ret
   if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const token = accessToken();
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const method = (options.method || 'GET').toUpperCase();
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    ...(method === 'GET' ? { cache: 'no-store' as RequestCache } : {}),
+  });
   if (response.status === 403 && retry && await refreshSession()) return apiRequest<T>(path, options, false);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(body.detail || body.message || body.error || response.statusText, response.status);
