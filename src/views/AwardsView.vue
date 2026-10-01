@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { apiRequest } from '../lib/api';
 import { myotaClient } from '../lib/myotaClient';
 import { useAppStore } from '../stores/app';
@@ -14,6 +14,10 @@ const templateElements = ref<TemplateElement[]>([]); const assetFile = ref<File 
 const dragState = ref<{ index: number; x: number; y: number } | null>(null);
 const form = reactive({ code: '', name: '', description: '', category: 'HUNTER', achievementMetric: 'QSO_COUNT', effectiveFrom: '', condition: '{\n  "kind": "AND",\n  "conditions": [{ "kind": "QSO_COUNT", "operator": "GTE", "value": 10 }]\n}', levels: '[{ "id": "level-10", "name": "10 contacts", "threshold": 10 }]', backgroundKey: '', backgroundType: 'image/png', width: 2481, height: 3508, page: 'A4', orientation: 'PORTRAIT', dpi: 300 });
 const assetForm = reactive({ kind: 'SIGNATURE', name: '', objectKey: '', mediaType: 'image/png', width: 1200, height: 400, sha256: '' });
+const pageSizesMm: Record<string, [number, number]> = { A4: [210, 297], LETTER: [215.9, 279.4] };
+const canvasAspectRatio = computed(() => { const [width, height] = pageSizesMm[form.page] || pageSizesMm.A4; return form.orientation === 'LANDSCAPE' ? `${height} / ${width}` : `${width} / ${height}`; });
+watch([() => form.page, () => form.orientation], () => { document.documentElement.style.setProperty('--award-canvas-aspect', canvasAspectRatio.value); }, { immediate: true });
+onUnmounted(() => document.documentElement.style.removeProperty('--award-canvas-aspect'));
 
 function defaultElements(): TemplateElement[] { return [{ kind: 'AWARD_NAME', label: 'Award name', x: .25, y: .10, width: .50, height: .08 }, { kind: 'CALLSIGN', label: 'Callsign', x: .35, y: .34, width: .30, height: .08 }, { kind: 'PERSON_NAME', label: 'Participant name', x: .25, y: .45, width: .50, height: .08 }, { kind: 'DATE_OBTAINED', label: 'Date obtained', x: .35, y: .57, width: .30, height: .06 }, { kind: 'MANAGER_NAME', label: 'Award manager', x: .20, y: .79, width: .35, height: .06 }, { kind: 'MANAGER_SIGNATURE', label: 'Manager signature', x: .60, y: .73, width: .25, height: .14 }]; }
 function edit(item: Award | null): void { selected.value = item; const background: any = item?.backgroundAsset || {}; const print: any = item?.printSpec || {}; templateElements.value = JSON.parse(JSON.stringify(item?.template?.elements || defaultElements())); Object.assign(form, { code: item?.code || '', name: item?.name || '', description: item?.description || '', category: item?.category || 'HUNTER', achievementMetric: item?.achievementMetric || 'QSO_COUNT', effectiveFrom: item?.effectiveFrom ? String(item.effectiveFrom).slice(0, 16) : '', condition: JSON.stringify(item?.condition || { kind: 'AND', conditions: [{ kind: 'QSO_COUNT', operator: 'GTE', value: 10 }] }, null, 2), levels: JSON.stringify(item?.levels || [{ id: 'level-10', name: '10 contacts', threshold: 10 }], null, 2), backgroundKey: background.objectKey || '', backgroundType: background.mediaType || 'image/png', width: background.widthPx || 2481, height: background.heightPx || 3508, page: print.page || 'A4', orientation: print.orientation || 'PORTRAIT', dpi: print.dpi || 300 }); }
