@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { apiRequest } from '../lib/api';
+import { myotaClient } from '../lib/myotaClient';
 import { useAppStore } from '../stores/app';
 import type { EntityCategory, Programme } from '../types';
 
@@ -33,8 +34,8 @@ async function edit(programme: Programme): Promise<void> {
   resetForm(selected.value);
 }
 
-async function assignCategory(category: EntityCategory): Promise<void> { if (selected.value) { try { const response = await apiRequest<{ items: EntityCategory[] }>(`/v1/programmes/${encodeURIComponent(selected.value.slug)}/entity-types/assign`, { method: 'POST', body: JSON.stringify({ code: category.code }), headers: { 'Idempotency-Key': crypto.randomUUID() } }); form.entityTypes = response.items || [...form.entityTypes, structuredClone(category)]; (selected.value as any).entityTypes = form.entityTypes; message.value = 'Category assigned.'; } catch (error) { message.value = error instanceof Error ? error.message : 'Unable to assign category.'; } } else form.entityTypes.push(structuredClone(category)); categorySelection.value = ''; }
-async function removeCategory(code: string): Promise<void> { if (selected.value) { try { const response = await apiRequest<{ items: EntityCategory[] }>(`/v1/programmes/${encodeURIComponent(selected.value.slug)}/entity-types/unassign`, { method: 'POST', body: JSON.stringify({ code }), headers: { 'Idempotency-Key': crypto.randomUUID() } }); form.entityTypes = response.items || form.entityTypes.filter(item => item.code !== code); (selected.value as any).entityTypes = form.entityTypes; message.value = 'Category unassigned.'; } catch (error) { message.value = error instanceof Error ? error.message : 'Unable to unassign category.'; } } else form.entityTypes = form.entityTypes.filter(item => item.code !== code); }
+async function assignCategory(category: EntityCategory): Promise<void> { if (selected.value) { try { const response = await myotaClient.assignProgrammeEntityCategory<{ items: EntityCategory[] }>(selected.value.slug, category.code); form.entityTypes = response.items || [...form.entityTypes, structuredClone(category)]; (selected.value as any).entityTypes = form.entityTypes; message.value = 'Category assigned.'; } catch (error) { message.value = error instanceof Error ? error.message : 'Unable to assign category.'; } } else form.entityTypes.push(structuredClone(category)); categorySelection.value = ''; }
+async function removeCategory(code: string): Promise<void> { if (selected.value) { try { const response = await myotaClient.unassignProgrammeEntityCategory<{ items: EntityCategory[] }>(selected.value.slug, code); form.entityTypes = response.items || form.entityTypes.filter(item => item.code !== code); (selected.value as any).entityTypes = form.entityTypes; message.value = 'Category unassigned.'; } catch (error) { message.value = error instanceof Error ? error.message : 'Unable to unassign category.'; } } else form.entityTypes = form.entityTypes.filter(item => item.code !== code); }
 async function assignSelectedCategory(): Promise<void> { const category = categories.value.find(item => item.code === categorySelection.value); if (category) await assignCategory(category); }
 
 async function save(): Promise<void> {
@@ -45,7 +46,8 @@ async function save(): Promise<void> {
   try {
     const payload: Record<string, unknown> = { slug: form.slug.trim().toLowerCase(), name: form.name.trim(), description: form.description, rules: { minimumQsos: { activation: Number(form.activationQsos), hunter: Number(form.hunterQsos) }, activationValidityDays: form.validityMode === 'unlimited' ? null : Number(form.validityDays), publicAccessRequired: form.publicAccess, excludeOverlappingProgrammes: form.excludeOverlaps }, theme: { primary: form.primary, accent: form.accent } };
     if (!selected.value) payload.entityTypes = form.entityTypes;
-    await apiRequest(selected.value ? `/v1/programmes/${encodeURIComponent(selected.value.slug)}/update` : '/v1/programmes', { method: 'POST', body: JSON.stringify(payload), headers: { 'Idempotency-Key': crypto.randomUUID() } });
+    if (selected.value) await myotaClient.patchProgramme(selected.value.slug, payload);
+    else await apiRequest('/v1/programmes', { method: 'POST', body: JSON.stringify(payload), headers: { 'Idempotency-Key': crypto.randomUUID() } });
     await load();
     const saved = programmes.value.find(item => item.slug === payload.slug) || null;
     resetForm(saved);
@@ -56,7 +58,7 @@ async function save(): Promise<void> {
 
 async function archive(): Promise<void> {
   if (!selected.value || !window.confirm(`Archive ${selected.value.slug}?`)) return;
-  await apiRequest(`/v1/programmes/${encodeURIComponent(selected.value.slug)}/archive`, { method: 'POST', body: '{}' });
+  await myotaClient.patchProgramme(selected.value.slug, { status: 'ARCHIVED' });
   await load(); resetForm();
 }
 
