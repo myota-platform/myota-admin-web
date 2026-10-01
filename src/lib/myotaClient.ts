@@ -21,6 +21,7 @@ export const myotaClient = {
   patchProgrammeContent<T = unknown>(slug: string, id: string, body: unknown) { return write<T>(`/v1/programmes/${encodeURIComponent(slug)}/content/${encodeURIComponent(id)}`, 'PATCH', body); },
   patchProgrammePolicyDraft<T = unknown>(slug: string, id: string, body: unknown) { return write<T>(`/v1/programmes/${encodeURIComponent(slug)}/policy-drafts/${encodeURIComponent(id)}`, 'PATCH', body); },
   patchIdentityAccount<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/identity/accounts/${encodeURIComponent(id)}`, 'PATCH', body); },
+  createIdentityRole<T = unknown>(body: unknown) { return write<T>('/v1/identity/roles', 'POST', body); },
   patchIdentityRole<T = unknown>(code: string, body: unknown) { return write<T>(`/v1/identity/roles/${encodeURIComponent(code)}`, 'PATCH', body); },
   patchGeodataEntityMetadata<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}`, 'PATCH', body); },
   putGeodataEntityGeometry<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/geometry`, 'PUT', body); },
