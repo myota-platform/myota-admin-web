@@ -34,9 +34,23 @@ the admin web should not absorb those participant-only responsibilities.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
+- Authenticated observability access at `/observability/`; the Admin UI refreshes
+  its access token before navigating, and its reverse proxy validates that
+  token on every Grafana request. Grafana is read-only for authenticated users;
+  Prometheus, Alertmanager and Tempo remain private cluster services.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
+
+### Observability access
+
+After signing in, choose **Platform health → Observability** in the sidebar.
+Grafana is served from `/observability/` on the same host. The UI refreshes its
+MyOTA access token before navigation and mirrors the short-lived token into a
+SameSite=Strict cookie scoped only to that path so Nginx can validate access
+against the identity API. Sign-out clears both the browser token and the helper
+cookie. Grafana maps authenticated sessions to the read-only Viewer role;
+Prometheus and Alertmanager are not exposed as separate public services.
 
 ## Vue application
 

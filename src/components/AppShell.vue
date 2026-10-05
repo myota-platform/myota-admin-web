@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAppStore } from '../stores/app';
+import { apiRequest } from '../lib/api';
 
 const store = useAppStore();
 const route = useRoute();
@@ -32,6 +33,16 @@ const sections = [
 const pageTitle = computed(() => route.path === '/dashboard' ? 'Dashboard' : String(route.meta.title || 'Administration'));
 function isActive(path: string): boolean { return route.path === path; }
 async function signOut(): Promise<void> { store.signOut(); await router.push('/login'); }
+async function openObservability(): Promise<void> {
+  try {
+    // Refresh an expired access token before leaving the SPA for the proxied Grafana UI.
+    await apiRequest('/v1/identity/me');
+    window.location.assign('/observability/');
+  } catch {
+    store.signOut();
+    await router.push('/login');
+  }
+}
 </script>
 
 <template>
@@ -51,6 +62,10 @@ async function signOut(): Promise<void> { store.signOut(); await router.push('/l
       <nav v-for="section in sections" :key="section.label" class="nav-section">
         <p class="nav-section-label">{{ section.label }}</p>
         <RouterLink v-for="item in section.items" :key="item.path" class="nav-item" :class="{ active: isActive(item.path) }" :aria-current="isActive(item.path) ? 'page' : undefined" :to="item.path" @click="sidebarOpen = false"><span class="nav-item-icon" aria-hidden="true">{{ item.icon }}</span>{{ item.label }}</RouterLink>
+      </nav>
+      <nav class="nav-section" aria-label="Observability">
+        <p class="nav-section-label">Platform health</p>
+        <a class="nav-item" href="/observability/" @click.prevent="openObservability"><span class="nav-item-icon" aria-hidden="true">⌁</span>Observability</a>
       </nav>
       <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p></div>
     </aside>

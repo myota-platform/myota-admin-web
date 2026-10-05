@@ -1,4 +1,23 @@
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const OBSERVABILITY_COOKIE = 'myota_admin_access';
+
+function syncObservabilityCookie(token: string): void {
+  if (typeof document === 'undefined') return;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  if (!token) {
+    document.cookie = `${OBSERVABILITY_COOKIE}=; Path=/observability; Max-Age=0; SameSite=Strict${secure}`;
+    return;
+  }
+  let maxAge = 600;
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(window.atob(part.padEnd(Math.ceil(part.length / 4) * 4, '=')));
+    if (Number.isFinite(claims.exp)) maxAge = Math.max(1, claims.exp - Math.floor(Date.now() / 1000));
+  } catch {
+    // The API will validate the token; this only bounds the helper cookie.
+  }
+  document.cookie = `${OBSERVABILITY_COOKIE}=${encodeURIComponent(token)}; Path=/observability; Max-Age=${maxAge}; SameSite=Strict${secure}`;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -10,16 +29,20 @@ export class ApiError extends Error {
 }
 
 export function accessToken(): string {
-  return localStorage.getItem('myota_admin_access') || '';
+  const token = localStorage.getItem('myota_admin_access') || '';
+  syncObservabilityCookie(token);
+  return token;
 }
 
 export function clearSession(): void {
   localStorage.removeItem('myota_admin_access');
   localStorage.removeItem('myota_admin_refresh');
+  syncObservabilityCookie('');
 }
 
 export function saveSession(data: { accessToken: string; refreshToken?: string }): void {
   localStorage.setItem('myota_admin_access', data.accessToken);
+  syncObservabilityCookie(data.accessToken);
   if (data.refreshToken) localStorage.setItem('myota_admin_refresh', data.refreshToken);
 }
 
