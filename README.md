@@ -51,6 +51,9 @@ SameSite=Strict cookie scoped only to that path so Nginx can validate access
 against the identity API. Sign-out clears both the browser token and the helper
 cookie. Grafana maps authenticated sessions to the read-only Viewer role;
 Prometheus and Alertmanager are not exposed as separate public services.
+The Nginx proxy refreshes its gateway and Grafana service DNS lookups every ten
+seconds, so it follows new Kubernetes ClusterIPs without requiring an admin-web
+restart.
 
 ## Vue application
 

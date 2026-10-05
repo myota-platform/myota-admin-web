@@ -1,0 +1,11 @@
+#!/bin/sh
+# Nginx needs an explicit resolver when proxy_pass uses a variable upstream.
+# Derive it from this container's resolver configuration (Docker or Kubernetes).
+if [ -z "${MYOTA_DNS_RESOLVER:-}" ]; then
+  MYOTA_DNS_RESOLVER="$(awk '$1 == "nameserver" { print $2; exit }' /etc/resolv.conf)"
+fi
+if [ -z "${MYOTA_DNS_RESOLVER}" ]; then
+  echo "No DNS resolver is configured for the admin-web proxy" >&2
+  exit 1
+fi
+export MYOTA_DNS_RESOLVER
