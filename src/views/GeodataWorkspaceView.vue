@@ -62,11 +62,22 @@ async function confirmDelete(): Promise<void> {
       await myotaClient.confirmGeodataEntityDeletionJob(pending.job.id, { confirmation: 'DELETE', deletedBy: store.account?.id });
       message.value = 'Entity deletion queued; linked QSOs will be removed and award recalculation will run.';
     } else {
-      for (const item of [...pending.items]) {
-        await myotaClient.confirmGeodataEntityDeletionJob(item.job.id, { confirmation: 'DELETE', deletedBy: store.account?.id });
-        pending.items = pending.items.filter(candidate => candidate.job.id !== item.job.id);
-        pending.completedCount += 1;
-        pending.impact = aggregateDeletionImpact(pending.items);
+      const submittedItems = [...pending.items];
+      const results = await Promise.allSettled(submittedItems.map(item =>
+        myotaClient.confirmGeodataEntityDeletionJob(item.job.id, { confirmation: 'DELETE', deletedBy: store.account?.id }),
+      ));
+      const queuedIds = new Set(submittedItems.filter((_, index) => results[index].status === 'fulfilled').map(item => item.job.id));
+      const queuedCount = queuedIds.size;
+      pending.items = pending.items.filter(item => !queuedIds.has(item.job.id));
+      pending.completedCount += queuedCount;
+      pending.impact = aggregateDeletionImpact(pending.items);
+      if (pending.items.length) {
+        const firstFailure = results.find(result => result.status === 'rejected');
+        const detail = firstFailure?.status === 'rejected' && firstFailure.reason instanceof Error
+          ? firstFailure.reason.message
+          : 'One or more deletion requests failed.';
+        error.value = `${queuedCount} deletion(s) queued together; ${pending.items.length} remain in the confirmation dialog. ${detail}`;
+        return;
       }
       message.value = `${pending.totalCount} entities queued for permanent deletion; linked QSOs will be removed and award recalculation will run.`;
     }
@@ -75,12 +86,7 @@ async function confirmDelete(): Promise<void> {
     selectedIds.value = [];
     await load();
   } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    if (pending.kind === 'bulk' && pending.completedCount > 0) {
-      error.value = `${pending.completedCount} of ${pending.totalCount} deletions were queued. The remaining ${pending.items.length} are still listed in the confirmation dialog. ${detail}`;
-    } else {
-      setError(e);
-    }
+    setError(e);
   } finally {
     deleting.value = false;
   }

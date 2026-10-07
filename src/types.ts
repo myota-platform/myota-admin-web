@@ -3,6 +3,7 @@ export interface Account {
   email: string;
   displayName: string;
   roles?: Array<{ role: string; scopes?: string[] }>;
+  scopes?: string[];
 }
 
 export interface Programme {

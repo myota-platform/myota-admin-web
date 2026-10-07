@@ -38,7 +38,9 @@ export const useAppStore = defineStore('app', () => {
       false,
     );
     saveSession(data);
-    account.value = data.account;
+    // Login returns the basic account record; /me is the canonical response
+    // containing resolved roles and scopes needed by permission-gated controls.
+    account.value = await apiRequest<Account>('/v1/identity/me');
     await loadProgrammes();
     apiStatus.value = 'connected';
   }
