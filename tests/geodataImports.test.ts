@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../src/lib/geodataImports.ts';
+import { canCancelPreprocessing, fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../src/lib/geodataImports.ts';
 
 test('summary uses authoritative worker counts rather than missing legacy UI fields', () => {
   assert.deepEqual(importCounts({ id: 'run', featureCount: 100,
@@ -20,6 +20,14 @@ test('queued and processing imports are visible but not yet reviewable', () => {
   assert.equal(isReviewable({ id: 'run', status: 'PROCESSING' }), false);
   assert.equal(isReviewable({ id: 'run', status: 'PREPROCESSED_WITH_ERRORS' }), true);
   assert.equal(importStatusLabel({ id: 'run', status: 'QUEUED' }), 'Waiting to preprocess');
+});
+
+test('cancellation state remains visible while only preprocessed work is protected from cancellation', () => {
+  assert.equal(isPreprocessing({ id: 'run', status: 'CANCELLING' }), true);
+  assert.equal(importStatusLabel({ id: 'run', status: 'CANCELLED' }), 'Cancelled');
+  assert.equal(canCancelPreprocessing({ id: 'run', status: 'UPLOAD_PENDING' }), true);
+  assert.equal(canCancelPreprocessing({ id: 'run', status: 'PROCESSING' }), true);
+  assert.equal(canCancelPreprocessing({ id: 'run', status: 'PREPROCESSED' }), false);
 });
 
 test('preprocessing queue includes older active runs beyond the first history page', async () => {

@@ -33,7 +33,10 @@ the admin web should not absorb those participant-only responsibilities.
 - Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Asynchronous geodata import submission for pasted or uploaded datasets, optional paste text when a file is selected, and clickable import-run summaries with entity counts, provenance, and errors.
-- Pre-processing queue validation with candidate-name Leaflet map previews and explicit import finalization that discards staged records while retaining the run summary.
+- Pre-processing queue validation with candidate-name Leaflet map previews,
+  confirmed cancellation for waiting uploads and active preprocessing, and
+  explicit import finalization that discards staged records while retaining
+  the run summary.
 - Resumable owner-scoped file uploads with pause/resume, checked parts, separate
   transfer/verification stages and fresh sessions when a completed file is submitted again.
 - Automatic worker-status refresh, authoritative counts, older active runs and

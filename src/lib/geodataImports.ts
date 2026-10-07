@@ -31,6 +31,10 @@ export interface ImportRun {
 export interface ImportPage { items: ImportRun[]; total?: number; nextPage?: number | null }
 
 export function isPreprocessing(run: ImportRun): boolean {
+  return ['UPLOAD_PENDING', 'QUEUED', 'PROCESSING', 'CANCELLING'].includes(run.status || '');
+}
+
+export function canCancelPreprocessing(run: ImportRun): boolean {
   return ['UPLOAD_PENDING', 'QUEUED', 'PROCESSING'].includes(run.status || '');
 }
 
@@ -41,7 +45,7 @@ export function isReviewable(run: ImportRun): boolean {
 export function importStatusLabel(run: ImportRun): string {
   const labels: Record<string, string> = {
     UPLOAD_PENDING: 'Waiting for upload', QUEUED: 'Waiting to preprocess',
-    PROCESSING: 'Preprocessing', PREPROCESSED: 'Ready to review',
+    PROCESSING: 'Preprocessing', CANCELLING: 'Cancelling…', CANCELLED: 'Cancelled', PREPROCESSED: 'Ready to review',
     PREPROCESSED_WITH_ERRORS: 'Ready with errors', COMPLETED: 'Promotion completed',
     COMPLETED_WITH_ERRORS: 'Completed with errors', PROCESSED: 'Finalized',
     FAILED: 'Failed', REJECTED: 'Rejected',

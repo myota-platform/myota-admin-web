@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { apiRequest } from '../lib/api';
-import { fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../lib/geodataImports';
+import { canCancelPreprocessing, fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../lib/geodataImports';
 import type { ImportPage, ImportRun } from '../lib/geodataImports';
 import { discardGeodataUpload, uploadGeodataFile } from '../lib/geodataUploads';
 import type { UploadMetadata, UploadProgress, UploadStage } from '../lib/geodataUploads';
@@ -309,6 +309,27 @@ async function markProcessed(): Promise<void> {
   } catch (cause) { setError(cause); }
   finally { actionBusy.value = false; }
 }
+async function cancelPreprocessing(run: ImportRun): Promise<void> {
+  if (!canCancelPreprocessing(run) || actionBusy.value) return;
+  const confirmed = window.confirm(
+    `Cancel preprocessing for “${run.filename || run.id}”? This removes the uploaded source and any staged pre-processing records. It cannot be undone.`,
+  );
+  if (!confirmed) return;
+  actionBusy.value = true;
+  error.value = '';
+  try {
+    const result = await apiRequest<ImportRun>(
+      `/v1/geodata/imports/${encodeURIComponent(run.id)}/cancellation`,
+      { method: 'PUT', body: JSON.stringify({}) },
+    );
+    if (selectedRun.value?.id === run.id) selectedRun.value = result;
+    message.value = result.status === 'CANCELLING'
+      ? 'Cancellation requested. The active worker will stop at its next safe checkpoint.'
+      : 'Import cancelled. Its temporary source and staged records were removed.';
+    await refreshImports(true);
+  } catch (cause) { setError(cause); }
+  finally { actionBusy.value = false; }
+}
 function duplicateMatches(item: ImportCandidate): DuplicateMatch[] {
   const matches = item.possibleDuplicates?.length ? item.possibleDuplicates : item.duplicateEntity ? [item.duplicateEntity] : [];
   return matches.map((match, index) => ({ ...match, id: match.id || match.entityId || `${item.id}-duplicate-${index}` }));
@@ -413,10 +434,13 @@ onBeforeUnmount(() => {
         <span class="status-pill queued">Separate from review</span>
       </div>
       <div class="table-list">
-        <button v-for="run in preprocessingRuns" :key="run.id" class="table-row" :class="{ selected: selectedRun?.id === run.id }" @click="selectRun(run)">
-          <span><strong>{{ run.filename || run.id }}</strong><small>{{ run.format }} · {{ run.adapter }} · {{ run.queuedAt || run.startedAt || run.createdAt || 'Time unavailable' }}</small></span>
-          <span class="status-pill" :class="(run.status || '').toLowerCase()">{{ importStatusLabel(run) }}</span>
-        </button>
+        <div v-for="run in preprocessingRuns" :key="run.id" class="table-row import-queue-row" :class="{ selected: selectedRun?.id === run.id }">
+          <button class="import-run-select" @click="selectRun(run)">
+            <span><strong>{{ run.filename || run.id }}</strong><small>{{ run.format }} · {{ run.adapter }} · {{ run.queuedAt || run.startedAt || run.createdAt || 'Time unavailable' }}</small></span>
+            <span class="status-pill" :class="(run.status || '').toLowerCase()">{{ importStatusLabel(run) }}</span>
+          </button>
+          <button v-if="canCancelPreprocessing(run)" class="danger-outline" :disabled="actionBusy" @click="cancelPreprocessing(run)">Cancel</button>
+        </div>
         <p v-if="!preprocessingRuns.length" class="muted empty">No imports are waiting for preprocessing or review.</p>
       </div>
       <p class="field-help">Status updates automatically while this page is visible.</p>
@@ -427,7 +451,10 @@ onBeforeUnmount(() => {
           <p class="eyebrow">IMPORT DETAIL</p><h2>{{ selectedRun.filename || selectedRun.id }}</h2>
           <p class="muted">{{ importStatusLabel(selectedRun) }} · {{ selectedCounts.source }} source records · {{ totalCandidates }} pending records</p>
         </div>
-        <button v-if="selectedRun.status !== 'PROCESSED'" class="secondary" :disabled="!canFinalize" @click="markProcessed">Mark import as processed</button>
+        <div class="import-detail-actions">
+          <button v-if="canCancelPreprocessing(selectedRun)" class="danger-outline" :disabled="actionBusy" @click="cancelPreprocessing(selectedRun)">Cancel preprocessing</button>
+          <button v-if="selectedRun.status !== 'PROCESSED'" class="secondary" :disabled="!canFinalize" @click="markProcessed">Mark import as processed</button>
+        </div>
       </div>
       <div class="info-grid">
         <div><span>Status</span><strong>{{ importStatusLabel(selectedRun) }}</strong></div>
@@ -446,7 +473,9 @@ onBeforeUnmount(() => {
         <strong>Record errors</strong><div v-for="(item, index) in selectedRun.errors" :key="index">{{ typeof item === 'string' ? item : JSON.stringify(item) }}</div>
       </div>
       <p v-if="selectedRun.status === 'PREPROCESSED_WITH_ERRORS'" class="notice">Valid records are available below. Only records that failed preprocessing were omitted.</p>
-      <p v-if="isPreprocessing(selectedRun)" class="notice">{{ selectedRun.status === 'PROCESSING' ? 'Preprocessing is running.' : 'This file is waiting for preprocessing.' }} Records will appear when preprocessing finishes. You can leave this page and return later.</p>
+      <p v-if="['UPLOAD_PENDING', 'QUEUED', 'PROCESSING'].includes(selectedRun.status || '')" class="notice">{{ selectedRun.status === 'PROCESSING' ? 'Preprocessing is running.' : selectedRun.status === 'UPLOAD_PENDING' ? 'The upload is being handed off for preprocessing.' : 'This file is waiting for preprocessing.' }} Records will appear when preprocessing finishes. You can leave this page and return later.</p>
+      <p v-if="selectedRun.status === 'CANCELLING'" class="notice">Cancellation requested. The worker will stop at a safe checkpoint and remove staged records and temporary source data.</p>
+      <p v-if="selectedRun.status === 'CANCELLED'" class="notice">This import was cancelled. Its temporary upload and pre-processing records have been removed.</p>
       <p v-else-if="selectedRun.status === 'PROCESSED'" class="notice">This import has been finalized. Its summary is retained; staged records have been removed.</p>
       <p v-else-if="selectedCounts.confirmed" class="notice">{{ selectedCounts.confirmed }} confirmed records are waiting for or undergoing promotion. Counts update automatically as the worker finishes.</p>
       <template v-if="showReview">
