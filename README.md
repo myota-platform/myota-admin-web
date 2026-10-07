@@ -17,14 +17,17 @@ the admin web should not absorb those participant-only responsibilities.
 - Role-aware global-admin shell with programme context and breadcrumb/audit context.
 - Dashboard for service health, programmes, review queue, active work and security events.
 - Programme create/update/archive and policy/theme editing.
-- Geodata candidate/proposal review and manual GeoJSON import launch.
+- Geodata candidate review, community proposals as candidate sources and a
+  separate Geodata imports page; there is no separate PROPOSED lifecycle state.
 - Separate Geodata review and Entity management workspaces: review keeps filters,
   map, source comparison, status changes, and review decisions; management keeps
   the filtered catalogue, Leaflet popups, name/location/category editing,
   geometry editing, GIS administration, audit history, and permanent deletion
   warnings.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
-- Map-bounds-filtered geodata review, rejected-entity deletion, and protected point/polygon geometry-type conversion for global or GIS administrators.
+- Paged, filtered geodata review and protected geometry editing; permanent
+  deletion of any lifecycle status requires global-administrator authorization
+  and explicit QSO/award-impact confirmation.
 - Geodata review page selection with current-page select-all, audited bulk approval, and global-administrator bulk deletion with QSO/activation impact confirmation.
 - Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/way/polygon drawing, and source/audit-aware inspection.
 - Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
@@ -49,6 +52,12 @@ the admin web should not absorb those participant-only responsibilities.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
+
+The [scaling delivery/evidence checklist](https://github.com/myota-platform/myota-docs/blob/main/docs/geodata-horizontal-scaling-roadmap.md#latest-delivery-and-evidence--7-october-2026)
+links the current upload, concurrency and worker integration. The
+[JetStream status guide](https://github.com/myota-platform/myota-docs/blob/main/docs/jetstream-admin-status.md)
+explains sampled history, unknown measurements and access permissions; this
+page never consumes, acknowledges or purges broker messages.
 
 ### Observability access
 
