@@ -12,6 +12,7 @@ import AwardsView from './views/AwardsView.vue';
 import GeodataImportsView from './views/GeodataImportsView.vue';
 import GeodataWorkspaceView from './views/GeodataWorkspaceView.vue';
 import EntityMapView from './views/EntityMapView.vue';
+import JetStreamView from './views/JetStreamView.vue';
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -28,6 +29,7 @@ const routes = [
   { path: '/entity-management', component: GeodataWorkspaceView, props: { mode: 'management' }, meta: { title: 'Entity catalogue' } },
   { path: '/entity-map', component: EntityMapView, meta: { title: 'Map explorer' } },
   { path: '/geodata-imports', component: GeodataImportsView, meta: { title: 'Geodata imports' } },
+  { path: '/jetstream', component: JetStreamView, meta: { title: 'NATS / JetStream' } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ];
 

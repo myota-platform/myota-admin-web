@@ -31,6 +31,14 @@ the admin web should not absorb those participant-only responsibilities.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Asynchronous geodata import submission for pasted or uploaded datasets, optional paste text when a file is selected, and clickable import-run summaries with entity counts, provenance, and errors.
 - Pre-processing queue validation with candidate-name Leaflet map previews and explicit import finalization that discards staged records while retaining the run summary.
+- Resumable owner-scoped file uploads with pause/resume, checked parts, separate
+  transfer/verification stages and fresh sessions when a completed file is submitted again.
+- Automatic worker-status refresh, authoritative counts, older active runs and
+  cross-page candidate selection; history remains paged below the workspace.
+- Revision-checked entity edits with conflict/reload guidance, not silent overwrites.
+- Authenticated `/jetstream` status page with actual broker streams, consumer
+  backlog/acknowledgement settings and persistent paged history through the
+  operations API. No direct NATS/database access or message controls in the browser.
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
@@ -57,7 +65,7 @@ restart.
 
 ## Vue application
 
-The `feature/admin-vue-migration` branch contains the complete Vue 3 +
+The current application is the complete Vue 3 +
 TypeScript + Vite administration application. All administration routes use
 typed Vue components; Pinia owns the small amount of cross-page client state,
 and API requests remain service-owned and isolated in `src/lib/api.ts`.
@@ -71,6 +79,7 @@ Local validation on this branch:
 ```bash
 npm install
 npm run typecheck
+npm test
 npm run build
 ```
 

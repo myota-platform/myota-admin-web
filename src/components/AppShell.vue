@@ -65,6 +65,7 @@ async function openObservability(): Promise<void> {
       </nav>
       <nav class="nav-section" aria-label="Observability">
         <p class="nav-section-label">Platform health</p>
+        <RouterLink class="nav-item" :class="{ active: isActive('/jetstream') }" to="/jetstream"><span class="nav-item-icon" aria-hidden="true">⇄</span>NATS / JetStream</RouterLink>
         <a class="nav-item" href="/observability/" @click.prevent="openObservability"><span class="nav-item-icon" aria-hidden="true">⌁</span>Observability</a>
       </nav>
       <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p></div>

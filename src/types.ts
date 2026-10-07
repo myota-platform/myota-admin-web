@@ -31,6 +31,7 @@ export interface EntityCategory {
 }
 
 export interface GeoEntity {
+  version?: number;
   id: string;
   name: string;
   status: string;
