@@ -19,11 +19,15 @@ function deletionRequest<T>(path: string, options: RequestInit = {}): Promise<T>
   );
 }
 
-function deletionWrite<T>(path: string, body: unknown): Promise<T> {
+function deletionWrite<T>(
+  path: string,
+  body: unknown,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<T> {
   return deletionRequest<T>(path, {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    headers: { 'Idempotency-Key': idempotencyKey },
   });
 }
 
@@ -49,7 +53,7 @@ export const myotaClient = {
   putGeodataEntityCategories<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/categories`, 'PUT', body, version); },
   postGeodataEntityReview<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/reviews`, 'POST', body, version); },
   postGeodataProposal<T = unknown>(body: unknown) { return write<T>('/v1/geodata/proposals', 'POST', body); },
-  createGeodataEntityDeletionJob<T = unknown>(body: unknown) { return deletionWrite<T>('/v1/geodata/entity-deletion-jobs', body); },
+  createGeodataEntityDeletionJob<T = unknown>(body: unknown, idempotencyKey?: string) { return deletionWrite<T>('/v1/geodata/entity-deletion-jobs', body, idempotencyKey); },
   getGeodataEntityDeletionJob<T = unknown>(jobId: string) { return deletionRequest<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}`); },
   confirmGeodataEntityDeletionJob<T = unknown>(jobId: string, body: unknown) { return deletionWrite<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}/confirm`, body); },
   patchAward<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/awards/${encodeURIComponent(id)}`, 'PATCH', body); },

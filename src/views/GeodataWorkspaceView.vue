@@ -56,15 +56,16 @@ function statusEvent(event: Event): string { return (event.target as HTMLSelectE
 async function saveStatus(status: string): Promise<void> { if (!selected.value) return; if (['APPROVED', 'RETIRED'].includes(selected.value.status) && status !== 'RETIRED') { error.value = `${selected.value.status} entities can only be retired.`; return; } if (status === selected.value.status) return; try { await myotaClient.postGeodataEntityReview(selected.value.id, { status, reviewerId: store.account?.id, note: editNote.value }, selected.value.version); message.value = `Status changed to ${status}.`; await load(); const refreshed = entities.value.find(item => item.id === selected.value?.id); if (refreshed) selectEntity(refreshed); } catch (e) { setError(e); } }
 async function bulkApprove(): Promise<void> { if (!selectedIds.value.length) return; try { const eligible = entities.value.filter(entity => selectedIds.value.includes(entity.id) && entity.status === 'CANDIDATE'); if (!eligible.length) { message.value = 'No selected candidates are eligible for approval.'; return; } await Promise.all(eligible.map(entity => myotaClient.postGeodataEntityReview(entity.id, { status: 'APPROVED', reviewerId: store.account?.id, note: 'Bulk approval from Geodata Review' }, entity.version))); message.value = `${eligible.length} candidates approved.`; selectedIds.value = []; await load(); } catch (e) { setError(e); } }
 type DeletionJob = { id: string; status?: string; error?: string; impact?: DeletionImpact };
-type DeletionItem = { entity: GeoEntity; job: DeletionJob; error?: string };
+type DeletionItem = { entity: GeoEntity; job: DeletionJob; error?: string; idempotencyKey: string };
 type PendingDeletion =
   | { kind: 'single'; entity: GeoEntity; job: DeletionJob }
   | { kind: 'bulk'; items: DeletionItem[]; totalCount: number; completedCount: number; impact: DeletionImpact };
 const deletionModal = ref<PendingDeletion | null>(null);
 const deleting = ref(false);
 const preparingBulkDelete = ref(false);
+const bulkPreparationFailed = computed(() => deletionModal.value?.kind === 'bulk' && deletionModal.value.items.some(item => String(item.job.status).toUpperCase() === 'PREPARATION_FAILED'));
 function aggregateDeletionImpact(items: DeletionItem[]): DeletionImpact { return items.reduce<DeletionImpact>((sum, item) => ({ qsoCount: (sum.qsoCount || 0) + Number(item.job.impact?.qsoCount || 0), activationCount: (sum.activationCount || 0) + Number(item.job.impact?.activationCount || 0), awardCount: (sum.awardCount || 0) + Number(item.job.impact?.awardCount || 0) }), {}); }
-async function createDeletionJob(id: string): Promise<DeletionJob> { return myotaClient.createGeodataEntityDeletionJob<DeletionJob>({ entityId: id, requestedBy: store.account?.id }); }
+async function createDeletionJob(id: string, idempotencyKey?: string): Promise<DeletionJob> { return myotaClient.createGeodataEntityDeletionJob<DeletionJob>({ entityId: id, requestedBy: store.account?.id }, idempotencyKey); }
 const deletionPendingStatuses = new Set(['QUEUED', 'PROCESSING']);
 const deletionPollDelayMs = 1_500;
 const deletionPollTimeoutMs = 60_000;
@@ -115,6 +116,10 @@ function cancelDelete(): void {
 async function confirmDelete(): Promise<void> {
   const pending = deletionModal.value;
   if (!pending) return;
+  if (pending.kind === 'bulk' && (preparingBulkDelete.value || pending.items.some(item => !item.job.id))) {
+    error.value = 'Prepare deletion details for every selected entity before confirming.';
+    return;
+  }
   deleting.value = true;
   try {
     if (pending.kind === 'single') {
@@ -190,16 +195,51 @@ async function deleteEntity(id: string, confirmAction = true, existingJob?: Dele
 async function bulkDelete(): Promise<void> {
   const selectedEntities = entities.value.filter(entity => selectedIds.value.includes(entity.id));
   if (!selectedEntities.length || !isGlobalAdmin.value) return;
-  preparingBulkDelete.value = true;
   error.value = '';
+  const pending: Extract<PendingDeletion, { kind: 'bulk' }> = {
+    kind: 'bulk',
+    items: selectedEntities.map(entity => ({
+      entity,
+      job: { id: '', status: 'PREPARING' },
+      idempotencyKey: crypto.randomUUID(),
+    })),
+    totalCount: selectedEntities.length,
+    completedCount: 0,
+    impact: {},
+  };
+  // Render the stern confirmation modal before any network request. A failed
+  // impact/job lookup must not make the bulk-delete action appear to do nothing.
+  deletionModal.value = pending;
+  await prepareBulkDeletionJobs(pending);
+}
+async function prepareBulkDeletionJobs(
+  pending: Extract<PendingDeletion, { kind: 'bulk' }>,
+): Promise<void> {
+  preparingBulkDelete.value = true;
   try {
-    const items = await Promise.all(selectedEntities.map(async entity => ({ entity, job: await createDeletionJob(entity.id) })));
-    deletionModal.value = { kind: 'bulk', items, totalCount: items.length, completedCount: 0, impact: aggregateDeletionImpact(items) };
-  } catch (e) {
-    setError(e);
+    const pendingItems = pending.items.filter(item =>
+      !item.job.id || String(item.job.status).toUpperCase() === 'PREPARATION_FAILED',
+    );
+    for (let offset = 0; offset < pendingItems.length; offset += 5) {
+      const batch = pendingItems.slice(offset, offset + 5);
+      await Promise.all(batch.map(async item => {
+        try {
+          item.job = await createDeletionJob(item.entity.id, item.idempotencyKey);
+          item.error = undefined;
+        } catch (cause) {
+          item.job = { id: '', status: 'PREPARATION_FAILED' };
+          item.error = cause instanceof Error ? cause.message : String(cause);
+        }
+      }));
+    }
+    pending.impact = aggregateDeletionImpact(pending.items);
   } finally {
     preparingBulkDelete.value = false;
   }
+}
+async function retryBulkDeletionPreparation(): Promise<void> {
+  const pending = deletionModal.value;
+  if (pending?.kind === 'bulk') await prepareBulkDeletionJobs(pending);
 }
 async function saveName(): Promise<void> { if (!selected.value || !editName.value.trim()) return; try { await myotaClient.patchGeodataEntityMetadata(selected.value.id, { name: editName.value.trim(), note: editNote.value, editorId: store.account?.id }, selected.value.version); message.value = 'Entity name saved.'; await load(); const refreshed = entities.value.find(item => item.id === selected.value?.id); if (refreshed) selectEntity(refreshed); } catch (e) { setError(e); } }
 async function saveCategories(): Promise<void> { if (!selected.value) return; try { await myotaClient.putGeodataEntityCategories(selected.value.id, { entityTypes: editTypes.value, editorId: store.account?.id }, selected.value.version); message.value = 'Entity categories saved.'; await load(); await refreshSelection(); } catch (e) { setError(e); } }
@@ -243,5 +283,35 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
   <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="10">10</option><option :value="25">25</option><option :value="50">50</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
   <article class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :editable-id="isManagement ? editingId : undefined" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @geometry-change="onGeometryChange" @draw-created="onDrawCreated"></LeafletMap><div v-if="isManagement && selected" class="map-actions"><button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry</button><button v-if="editingId" class="secondary" @click="stopGeometryEdit">Exit edit mode</button></div></article>
   <article v-if="selected" id="entity-editor" class="panel editor-panel"><div class="panel-heading"><div><p class="eyebrow">{{ isManagement ? 'ENTITY MANAGEMENT' : 'REVIEW DECISION' }}</p><h2>{{ selected.name }}</h2><small class="muted">{{ selected.id }}</small></div><span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span></div><section class="form-section source-comparison"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot remains immutable. Compare it with the current platform geometry before editing or recording a review decision.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">{{ sourceSnapshot(selected) }}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">{{ JSON.stringify(selected.geometry || {}, null, 2) }}</pre></div></div></section><div class="editor-grid"><section v-if="isManagement" class="form-section"><h3>Entity name</h3><p class="field-help">Name changes are audited and do not alter the original source.</p><input v-model="editName"><textarea v-model="editNote" placeholder="Explain this name change"></textarea><button class="primary" @click="saveName">Save name</button></section><section v-if="isManagement" class="form-section"><h3>Entity categories</h3><p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input v-model="editTypes" type="checkbox" :value="category.code">{{ category.label || category.code }}</label></div><button class="secondary" @click="saveCategories">Save categories</button></section><section class="form-section gis-admin-section"><h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3><p v-if="isManagement" class="field-help">Global and GIS administrators can edit geometry explicitly. Point, LineString, MultiLineString, Polygon and MultiPolygon are supported. Use the map edit button above for vertex editing, or save a validated GeoJSON geometry below.</p><template v-if="isManagement"><label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label><textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea><textarea v-model="geometryNote" placeholder="Geometry change note"></textarea><button class="primary" @click="saveGeometry">Save geometry</button></template><template v-else><label>Status<select v-model="reviewStatus"><option v-for="status in selectedStatusOptions" :key="status" :value="status">{{ status }}</option></select></label><textarea v-model="editNote" placeholder="Review note / decision evidence"></textarea><button class="primary" @click="saveStatus(reviewStatus)">Save review decision</button></template></section></div><section class="form-section"><div class="section-heading"><div><h3>Location metadata</h3><p class="field-help">Reverse-geocoded values are automatic unless a field is explicitly marked as a manual override. Provider codes are read-only.</p></div><button v-if="isManagement" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button></div><div v-if="!editingLocation" class="info-grid"><div><span>Continent</span><strong>{{ locationValue(selected, 'continent') || '—' }}</strong></div><div><span>Country</span><strong>{{ locationValue(selected, 'country') || '—' }}</strong></div><div><span>Region</span><strong>{{ locationValue(selected, 'region') || '—' }}</strong></div><div><span>Province</span><strong>{{ locationValue(selected, 'province') || '—' }}</strong></div><div><span>County</span><strong>{{ locationValue(selected, 'county') || '—' }}</strong></div><div><span>City / municipality</span><strong>{{ locationValue(selected, 'city') || locationValue(selected, 'municipality') || '—' }}</strong></div></div><div v-else class="form-grid location-editor-grid"><label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" list="location-options" @change="refreshLocationCodes(field)"><small class="field-help">Provider-derived name; choose a valid value.</small></label><datalist id="location-options"><option v-for="item in locationValues('country')" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist><label>Continent code<input v-model="locationForm.continentCode" readonly></label><label>Country code<input v-model="locationForm.countryCode" readonly></label><label>Subdivision code<input v-model="locationForm.subdivisionCode" readonly></label><label>Province code<input v-model="locationForm.provinceCode" readonly></label><label>County / equivalent<input v-model="locationForm.county"></label><label>City<input v-model="locationForm.city"></label><label>Municipality<input v-model="locationForm.municipality"></label><label>Locality<input v-model="locationForm.locality"></label><fieldset class="wide"><legend>Manual overrides</legend><div class="checkbox-grid"><label v-for="field in ['continent','country','region','province','county','city','municipality','locality']" :key="field"><input v-model="locationManual" type="checkbox" :value="field">Keep {{ field }} manual</label></div></fieldset><div class="form-actions wide"><button class="primary" @click="saveLocation">Save location</button><button class="secondary" @click="editingLocation = false">Cancel</button></div></div></section><section v-if="isManagement" class="form-section"><h3>Audit history</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div><button v-if="isGlobalAdmin" class="danger" @click="deleteEntity(selected.id)">Permanently delete entity</button></section><section v-else class="form-section"><h3>Review audit context</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div></section></article>
-  <div v-if="deletionModal" class="modal-backdrop" role="presentation" @click.self="cancelDelete"><article class="modal-card deletion-modal" role="alertdialog" aria-modal="true" aria-labelledby="deletion-title"><div class="panel-heading"><div><p class="eyebrow">PERMANENT DELETION</p><h2 id="deletion-title">{{ deletionModal.kind === 'single' ? `Delete ${deletionModal.entity.name}?` : `Delete ${deletionModal.totalCount} entities?` }}</h2></div><button class="quiet" type="button" @click="cancelDelete">Close</button></div><ul v-if="deletionModal.kind === 'bulk'" class="bulk-delete-list"><li v-for="item in deletionModal.items" :key="item.entity.id"><strong>{{ item.entity.name }}</strong><small>{{ item.job.status || 'Ready for confirmation' }}<template v-if="item.error || item.job.error"> · {{ item.error || item.job.error }}</template></small></li></ul><p v-if="deletionModal.kind === 'single' && (deletionModal.job.status || deletionModal.job.error)" class="notice">{{ deletionModal.job.status }}<template v-if="deletionModal.job.error"> · {{ deletionModal.job.error }}</template></p><p v-if="deletionModal.kind === 'bulk' && deletionModal.completedCount" class="notice">{{ deletionModal.completedCount }} of {{ deletionModal.totalCount }} entities have been deleted. Remaining jobs are shown below.</p><div class="error-card deletion-warning"><strong>This action cannot be undone.</strong><p>{{ deletionModal.kind === 'single' ? 'The entity, its audit history, and all linked activity will be permanently removed.' : 'The selected entities, their audit histories, and all linked activity will be permanently removed.' }}</p><p><strong>{{ deletionModal.kind === 'single' ? deletionModal.job.impact?.qsoCount || 0 : deletionModal.impact.qsoCount || 0 }}</strong> valid QSO(s) will be deleted in cascade. <strong>{{ deletionModal.kind === 'single' ? deletionModal.job.impact?.activationCount || 0 : deletionModal.impact.activationCount || 0 }}</strong> activation(s) may become invalid.</p><p>Award progress will be recalculated, and previously qualified awards may become invalid.</p></div><div class="form-actions"><button class="secondary" type="button" @click="cancelDelete">Cancel</button><button class="danger" type="button" :disabled="deleting || (deletionModal.kind === 'bulk' && !deletionModal.items.length) || (deletionModal.kind === 'single' && String(deletionModal.job.status).toUpperCase() === 'FAILED')" @click="confirmDelete">{{ deleting ? 'Processing deletion jobs…' : deletionModal.kind === 'single' ? deletionPendingStatuses.has(String(deletionModal.job.status).toUpperCase()) ? 'Check deletion status' : String(deletionModal.job.status).toUpperCase() === 'FAILED' ? 'Deletion failed' : 'Permanently delete entity' : deletionModal.items.some(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase())) ? 'Check deletion status' : `Permanently delete ${deletionModal.items.length} entities` }}</button></div></article></div>
+  <div v-if="deletionModal" class="modal-backdrop" role="presentation" @click.self="cancelDelete">
+    <article class="modal-card deletion-modal" role="alertdialog" aria-modal="true" aria-labelledby="deletion-title">
+      <div class="panel-heading">
+        <div><p class="eyebrow">PERMANENT DELETION</p><h2 id="deletion-title">{{ deletionModal.kind === 'single' ? `Delete ${deletionModal.entity.name}?` : `Delete ${deletionModal.totalCount} entities?` }}</h2></div>
+        <button class="quiet" type="button" @click="cancelDelete">Close</button>
+      </div>
+      <ul v-if="deletionModal.kind === 'bulk'" class="bulk-delete-list">
+        <li v-for="item in deletionModal.items" :key="item.entity.id">
+          <strong>{{ item.entity.name }}</strong>
+          <small>{{ item.job.status === 'PREPARING' ? 'Preparing deletion details…' : item.job.status === 'PREPARATION_FAILED' ? 'Could not prepare this entity' : item.job.status || 'Ready for confirmation' }}<template v-if="item.error || item.job.error"> · {{ item.error || item.job.error }}</template></small>
+        </li>
+      </ul>
+      <p v-if="deletionModal.kind === 'bulk' && preparingBulkDelete" class="notice" role="status">Preparing deletion details for {{ deletionModal.items.filter(item => item.job.id).length }} of {{ deletionModal.totalCount }} entities. No deletion is queued until you confirm below.</p>
+      <p v-if="deletionModal.kind === 'single' && (deletionModal.job.status || deletionModal.job.error)" class="notice">{{ deletionModal.job.status }}<template v-if="deletionModal.job.error"> · {{ deletionModal.job.error }}</template></p>
+      <p v-if="deletionModal.kind === 'bulk' && deletionModal.completedCount" class="notice">{{ deletionModal.completedCount }} of {{ deletionModal.totalCount }} entities have been deleted. Remaining jobs are shown below.</p>
+      <div class="error-card deletion-warning">
+        <strong>This action cannot be undone.</strong>
+        <p>{{ deletionModal.kind === 'single' ? 'The entity, its audit history, and all linked activity will be permanently removed.' : 'The selected entities, their audit histories, and all linked activity will be permanently removed.' }}</p>
+        <p v-if="deletionModal.kind === 'bulk' && preparingBulkDelete">Calculating linked QSO and activation impact…</p>
+        <p v-else><strong>{{ deletionModal.kind === 'single' ? deletionModal.job.impact?.qsoCount || 0 : deletionModal.impact.qsoCount || 0 }}</strong> valid QSO(s) will be deleted in cascade. <strong>{{ deletionModal.kind === 'single' ? deletionModal.job.impact?.activationCount || 0 : deletionModal.impact.activationCount || 0 }}</strong> activation(s) may become invalid.</p>
+        <p>Award progress will be recalculated, and previously qualified awards may become invalid.</p>
+      </div>
+      <div class="form-actions">
+        <button class="secondary" type="button" @click="cancelDelete">Cancel</button>
+        <button v-if="deletionModal.kind === 'bulk' && bulkPreparationFailed" class="secondary" type="button" :disabled="preparingBulkDelete" @click="retryBulkDeletionPreparation">{{ preparingBulkDelete ? 'Retrying preparation…' : 'Retry failed preparation' }}</button>
+        <button class="danger" type="button" :disabled="deleting || (deletionModal.kind === 'bulk' && (preparingBulkDelete || bulkPreparationFailed || !deletionModal.items.length)) || (deletionModal.kind === 'single' && String(deletionModal.job.status).toUpperCase() === 'FAILED')" @click="confirmDelete">
+          {{ deleting ? 'Processing deletion jobs…' : deletionModal.kind === 'single' ? deletionPendingStatuses.has(String(deletionModal.job.status).toUpperCase()) ? 'Check deletion status' : String(deletionModal.job.status).toUpperCase() === 'FAILED' ? 'Deletion failed' : 'Permanently delete entity' : preparingBulkDelete ? 'Preparing deletion details…' : bulkPreparationFailed ? 'Resolve preparation errors first' : deletionModal.items.some(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase())) ? 'Check deletion status' : `Permanently delete ${deletionModal.items.length} entities` }}
+        </button>
+      </div>
+    </article>
+  </div>
 </template>

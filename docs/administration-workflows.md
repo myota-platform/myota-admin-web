@@ -19,7 +19,12 @@ retired entities remain protected by the lifecycle rule. Global administrators
 also have **Delete entities permanently**. Before deletion, the UI gathers the
 impact for every selected entity and shows the same stern warning used by the
 single-entity action, including the number of valid QSOs and activations that
-will be affected. Deletion cascades through activity data, queues award
+will be affected. For bulk deletion, the modal appears immediately and then
+loads impact and confirmation-job details in small batches. A failed lookup is
+shown on the affected entity with a retry action instead of hiding the modal.
+Creating these confirmation jobs does not publish deletion events; events are
+queued only after the administrator presses the final confirmation button.
+Deletion cascades through activity data, queues award
 recalculation, removes the geodata record and audit record, and cannot be
 undone. Single and bulk deletion both poll their durable job until completion,
 failure, or a bounded status-check timeout. The dialog remains closable while
