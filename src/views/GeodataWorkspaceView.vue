@@ -21,6 +21,7 @@ const creating = ref(false); const newName = ref(''); const newTypes = ref<strin
 const editingId = ref(''); const drawing = ref(false); const drawingMode = ref<'POINT' | 'WAY' | 'POLYGON'>('POLYGON');
 const editingLocation = ref(false); const locationOptions = ref<LocationOption[]>([]); const locationLoading = ref(false); const locationManual = ref<string[]>([]); const locationForm = reactive({ continent: '', country: '', region: '', province: '', county: '', city: '', municipality: '', locality: '', continentCode: '', countryCode: '', regionCode: '', subdivisionCode: '', provinceCode: '', countyCode: '' });
 const locationEnrichmentSubmitting = ref(false);
+const locationEnrichmentPollIntervalMs = 2_000;
 const isManagement = computed(() => props.mode === 'management'); const allSelected = computed(() => entities.value.length > 0 && entities.value.every(item => selectedIds.value.includes(item.id))); const isGlobalAdmin = computed(() => { const account = store.account as { roles?: Array<{ role?: string; scopes?: string[] } | string>; role?: string; scopes?: string[] } | null; const roles = account?.roles || []; return roles.some(role => { const roleName = typeof role === 'string' ? role : role.role; const scopes = typeof role === 'string' ? [] : role.scopes || []; return ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(roleName || '').toUpperCase()) || scopes.includes('*'); }) || ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(account?.role || '').toUpperCase()) || (account?.scopes || []).includes('*'); });
 const selectedStatusOptions = computed(() => ['APPROVED', 'RETIRED'].includes(selected.value?.status || '') ? ['RETIRED'] : statuses);
 const reviewStatus = ref('');
@@ -323,6 +324,57 @@ watch(() => filters.continent, () => { filters.country = ''; filters.region = ''
 watch(() => filters.country, () => { filters.region = ''; filters.province = ''; filters.city = ''; });
 watch(() => filters.region, () => { filters.province = ''; filters.city = ''; });
 watch(() => filters.province, () => { filters.city = ''; });
+watch(
+  [
+    () => isManagement.value,
+    () => selected.value?.id,
+    () => selected.value?.locationEnrichmentStatus,
+  ],
+  ([management, entityId, status], _previous, onCleanup) => {
+    if (!management || !entityId || status !== 'QUEUED') return;
+
+    let active = true;
+    let timer: number | undefined;
+    const poll = async (): Promise<void> => {
+      try {
+        const refreshed = await apiRequest<GeoEntity>(
+          `/v1/geodata/entities/${encodeURIComponent(entityId)}`,
+        );
+        if (!active || selected.value?.id !== entityId) return;
+
+        selected.value = { ...selected.value, ...refreshed };
+        const listIndex = entities.value.findIndex(item => item.id === entityId);
+        if (listIndex >= 0) {
+          entities.value[listIndex] = { ...entities.value[listIndex], ...refreshed };
+        }
+
+        if (refreshed.locationEnrichmentStatus === 'COMPLETED') {
+          message.value = 'Location metadata updated.';
+          error.value = '';
+        } else if (refreshed.locationEnrichmentStatus === 'FAILED') {
+          message.value = 'The location lookup failed. Existing metadata was preserved; you can retry.';
+        }
+      } catch {
+        // Keep polling through transient API/network errors while this entity
+        // remains selected; the worker continues independently.
+      }
+
+      if (
+        active
+        && selected.value?.id === entityId
+        && selected.value.locationEnrichmentStatus === 'QUEUED'
+      ) {
+        timer = window.setTimeout(poll, locationEnrichmentPollIntervalMs);
+      }
+    };
+
+    timer = window.setTimeout(poll, locationEnrichmentPollIntervalMs);
+    onCleanup(() => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    });
+  },
+);
 watch(() => [pageSize.value, filters.programme, filters.entityType, filters.continent, filters.country, filters.region, filters.province, filters.city], () => { page.value = 1; load(); });
 onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions(), load()]); });
 </script>

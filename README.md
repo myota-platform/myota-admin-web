@@ -24,7 +24,9 @@ the admin web should not absorb those participant-only responsibilities.
   the filtered catalogue, Leaflet popups, name/location/category editing,
   geometry editing, GIS administration, audit history, and permanent deletion
   warnings. Missing location metadata can be explicitly queued for asynchronous
-  reverse-geocoding from the current geometry.
+  reverse-geocoding from the current geometry; Entity Management polls the
+  selected entity while that lookup is queued and refreshes the visible fields
+  when the worker completes.
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Paged, filtered geodata review and protected geometry editing; permanent
   deletion of any lifecycle status requires global-administrator authorization
