@@ -64,9 +64,10 @@ queues their promotion. The import history below it contains completed and
 failed runs.
 
 Submitting a text dataset returns immediately with a `QUEUED` import run. Text
-parsing, geometry normalization, reverse-geocoding, and deduplication run
-asynchronously, so large pasted FeatureCollections do not hold the browser
-request open. The run first reaches `PREPROCESSED`; records are shown in a
+parsing, geometry normalization, and deduplication run asynchronously, so large
+pasted FeatureCollections do not hold the browser request open. Reverse
+geocoding occurs after an entity is materialized or its geometry changes, not
+during import preprocessing. The run first reaches `PREPROCESSED`; records are shown in a
 compact paged validation queue in the import summary modal. Select a page or
 all records, confirm the selection, choose `CANDIDATE` or `APPROVED`, and queue
 the confirmed records for promotion. The request body is bounded by the

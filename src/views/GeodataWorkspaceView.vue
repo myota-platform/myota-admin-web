@@ -20,6 +20,7 @@ const editName = ref(''); const editNote = ref(''); const geometryNote = ref('')
 const creating = ref(false); const newName = ref(''); const newTypes = ref<string[]>([]); const newGeometry = ref('{\n  "type": "Point",\n  "coordinates": [-5.99, 37.39]\n}');
 const editingId = ref(''); const drawing = ref(false); const drawingMode = ref<'POINT' | 'WAY' | 'POLYGON'>('POLYGON');
 const editingLocation = ref(false); const locationOptions = ref<LocationOption[]>([]); const locationLoading = ref(false); const locationManual = ref<string[]>([]); const locationForm = reactive({ continent: '', country: '', region: '', province: '', county: '', city: '', municipality: '', locality: '', continentCode: '', countryCode: '', regionCode: '', subdivisionCode: '', provinceCode: '', countyCode: '' });
+const locationEnrichmentSubmitting = ref(false);
 const isManagement = computed(() => props.mode === 'management'); const allSelected = computed(() => entities.value.length > 0 && entities.value.every(item => selectedIds.value.includes(item.id))); const isGlobalAdmin = computed(() => { const account = store.account as { roles?: Array<{ role?: string; scopes?: string[] } | string>; role?: string; scopes?: string[] } | null; const roles = account?.roles || []; return roles.some(role => { const roleName = typeof role === 'string' ? role : role.role; const scopes = typeof role === 'string' ? [] : role.scopes || []; return ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(roleName || '').toUpperCase()) || scopes.includes('*'); }) || ['GLOBAL_ADMIN', 'GLOBAL_OPERATOR'].includes(String(account?.role || '').toUpperCase()) || (account?.scopes || []).includes('*'); });
 const selectedStatusOptions = computed(() => ['APPROVED', 'RETIRED'].includes(selected.value?.status || '') ? ['RETIRED'] : statuses);
 const reviewStatus = ref('');
@@ -37,6 +38,24 @@ async function reloadConflictedEntity(): Promise<void> {
 }
 function categoryCodes(entity: GeoEntity): string[] { return (entity.entityTypes || (entity.entityType ? [entity.entityType] : [])).map(item => typeof item === 'string' ? item : item.code); }
 function locationValue(entity: GeoEntity, key: string): string { return String((entity as any)[key] ?? entity.location?.[key] ?? (key === 'region' ? (entity as any).subdivision ?? entity.location?.subdivision : '') ?? ''); }
+function missingLocationFields(entity: GeoEntity): string[] {
+  const manual = new Set((entity as any).manualLocationFields || []);
+  const groups: Array<[string, string[]]> = [
+    ['continent', ['continent']],
+    ['continent code', ['continentCode']],
+    ['country', ['country']],
+    ['country code', ['countryCode']],
+    ['region', ['region', 'subdivision']],
+    ['subdivision code', ['regionCode', 'subdivisionCode']],
+    ['city / municipality', ['city', 'municipality']],
+  ];
+  return groups.flatMap(([label, fields]) => {
+    const hasValue = fields.some(field =>
+      Boolean((entity as any)[field] ?? entity.location?.[field]),
+    );
+    return hasValue || fields.some(field => manual.has(field)) ? [] : [label];
+  });
+}
 function sourceSnapshot(entity: GeoEntity): string { return JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2); }
 function auditEntries(): AuditEntry[] { const value = audit.value; return (value.items || [...(value.reviewHistory || []), ...(value.geometryHistory || []), ...(value.statusHistory || [])]).sort((a, b) => String(b.occurredAt || b.editedAt || '').localeCompare(String(a.occurredAt || a.editedAt || ''))); }
 function query(): string { const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) }); if (filters.programme) params.set('programme', filters.programme); filters.status.forEach(status => params.append('status', status)); if (filters.entityType) params.set('entityType', filters.entityType); for (const key of ['continent', 'country', 'region', 'province', 'city']) { const value = filters[key as keyof typeof filters]; if (typeof value === 'string' && value) params.set(key, value); } return params.toString(); }
@@ -279,6 +298,24 @@ async function startLocationEdit(): Promise<void> { if (!selected.value) return;
 function locationValues(field: string): LocationOption[] { if (field === 'continent') return locationOptions.value; const countries = locationCountries(); if (field === 'country') return countries; const country = countries.find(item => item.name === locationForm.country); const regions = country ? country.subdivisions || [] : countries.flatMap(item => item.subdivisions || []); if (field === 'region') return regions; const region = regions.find(item => item.name === locationForm.region); return region ? region.provinces || [] : regions.flatMap(item => item.provinces || []); }
 function refreshLocationCodes(field: string): void { const match = locationValues(field).find(item => item.name === locationForm[field as keyof typeof locationForm]); if (field === 'continent') locationForm.continentCode = match?.code || ''; if (field === 'country') locationForm.countryCode = match?.code || ''; if (field === 'region') { locationForm.regionCode = match?.code || ''; locationForm.subdivisionCode = match?.code || ''; } if (field === 'province') locationForm.provinceCode = match?.code || ''; }
 async function saveLocation(): Promise<void> { if (!selected.value) return; try { const location = { ...locationForm, region: locationForm.region || null, subdivision: locationForm.region || null }; await myotaClient.patchGeodataEntityMetadata(selected.value.id, { location, manualFields: locationManual.value, editorId: store.account?.id }, selected.value.version); message.value = 'Location metadata saved.'; editingLocation.value = false; await load(); const refreshed = entities.value.find(item => item.id === selected.value?.id); if (refreshed) selectEntity(refreshed); } catch (e) { setError(e); } }
+async function requestLocationEnrichment(): Promise<void> {
+  if (!selected.value || !missingLocationFields(selected.value).length) return;
+  locationEnrichmentSubmitting.value = true;
+  error.value = '';
+  try {
+    await myotaClient.postGeodataEntityLocationEnrichmentRequest(
+      selected.value.id,
+      { editorId: store.account?.id },
+      selected.value.version,
+    );
+    message.value = 'Location update queued. Results will be saved only if the entity geometry remains unchanged.';
+    await refreshSelection();
+  } catch (cause) {
+    setError(cause);
+  } finally {
+    locationEnrichmentSubmitting.value = false;
+  }
+}
 function toggleNewType(code: string): void { newTypes.value = newTypes.value.includes(code) ? newTypes.value.filter(item => item !== code) : [...newTypes.value, code]; }
 async function createCandidate(): Promise<void> { if (!newName.value.trim() || !newTypes.value.length) { error.value = 'Enter a name and select at least one category.'; return; } try { const geometry = JSON.parse(newGeometry.value); await myotaClient.postGeodataProposal({ source: { name: 'Manual administration proposal', license: 'programme-supplied' }, proposerId: store.account?.id, entityTypes: newTypes.value, feature: { type: 'Feature', properties: { name: newName.value.trim() }, geometry } }); message.value = 'New candidate submitted.'; creating.value = false; newName.value = ''; newTypes.value = []; await load(); } catch (e) { setError(e instanceof SyntaxError ? new Error('Geometry must be valid JSON.') : e); } }
 function setPage(next: number): void { page.value = next; load(); }
@@ -297,7 +334,122 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
   <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" required></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
   <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small><small class="locator-values">4-character grid squares: {{ entity.maidenheadGridSquares4?.join(', ') || '—' }} · 6-character locators: {{ entity.maidenheadLocators6?.join(', ') || '—' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
   <article class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :editable-id="isManagement ? editingId : undefined" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @geometry-change="onGeometryChange" @draw-created="onDrawCreated"></LeafletMap><div v-if="isManagement && selected" class="map-actions"><button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry</button><button v-if="editingId" class="secondary" @click="stopGeometryEdit">Exit edit mode</button></div></article>
-  <article v-if="selected" id="entity-editor" class="panel editor-panel"><div class="panel-heading"><div><p class="eyebrow">{{ isManagement ? 'ENTITY MANAGEMENT' : 'REVIEW DECISION' }}</p><h2>{{ selected.name }}</h2><small class="muted">{{ selected.id }}</small></div><span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span></div><section class="form-section source-comparison"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot remains immutable. Compare it with the current platform geometry before editing or recording a review decision.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">{{ sourceSnapshot(selected) }}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">{{ JSON.stringify(selected.geometry || {}, null, 2) }}</pre></div></div></section><div class="editor-grid"><section v-if="isManagement" class="form-section"><h3>Entity name</h3><p class="field-help">Name changes are audited and do not alter the original source.</p><input v-model="editName"><textarea v-model="editNote" placeholder="Explain this name change"></textarea><button class="primary" @click="saveName">Save name</button></section><section v-if="isManagement" class="form-section"><h3>Entity categories</h3><p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input v-model="editTypes" type="checkbox" :value="category.code">{{ category.label || category.code }}</label></div><button class="secondary" @click="saveCategories">Save categories</button></section><section class="form-section gis-admin-section"><h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3><p v-if="isManagement" class="field-help">Global and GIS administrators can edit geometry explicitly. Point, LineString, MultiLineString, Polygon and MultiPolygon are supported. Use the map edit button above for vertex editing, or save a validated GeoJSON geometry below.</p><template v-if="isManagement"><label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label><textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea><textarea v-model="geometryNote" placeholder="Geometry change note"></textarea><button class="primary" @click="saveGeometry">Save geometry</button></template><template v-else><label>Status<select v-model="reviewStatus"><option v-for="status in selectedStatusOptions" :key="status" :value="status">{{ status }}</option></select></label><textarea v-model="editNote" placeholder="Review note / decision evidence"></textarea><button class="primary" @click="saveStatus(reviewStatus)">Save review decision</button></template></section></div><section class="form-section"><div class="section-heading"><div><h3>Location metadata</h3><p class="field-help">Reverse-geocoded values are automatic unless a field is explicitly marked as a manual override. Provider codes are read-only.</p></div><button v-if="isManagement" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button></div><div v-if="!editingLocation" class="info-grid"><div><span>Continent</span><strong>{{ locationValue(selected, 'continent') || '—' }}</strong></div><div><span>Country</span><strong>{{ locationValue(selected, 'country') || '—' }}</strong></div><div><span>Region</span><strong>{{ locationValue(selected, 'region') || '—' }}</strong></div><div><span>Province</span><strong>{{ locationValue(selected, 'province') || '—' }}</strong></div><div><span>County</span><strong>{{ locationValue(selected, 'county') || '—' }}</strong></div><div><span>City / municipality</span><strong>{{ locationValue(selected, 'city') || locationValue(selected, 'municipality') || '—' }}</strong></div><div><span>Maidenhead grid squares (4)</span><strong>{{ selected.maidenheadGridSquares4?.join(', ') || '—' }}</strong></div><div><span>Maidenhead locators (6)</span><strong>{{ selected.maidenheadLocators6?.join(', ') || '—' }}</strong></div></div><div v-else class="form-grid location-editor-grid"><label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" list="location-options" @change="refreshLocationCodes(field)"><small class="field-help">Provider-derived name; choose a valid value.</small></label><datalist id="location-options"><option v-for="item in locationValues('country')" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist><label>Continent code<input v-model="locationForm.continentCode" readonly></label><label>Country code<input v-model="locationForm.countryCode" readonly></label><label>Subdivision code<input v-model="locationForm.subdivisionCode" readonly></label><label>Province code<input v-model="locationForm.provinceCode" readonly></label><label>County / equivalent<input v-model="locationForm.county"></label><label>City<input v-model="locationForm.city"></label><label>Municipality<input v-model="locationForm.municipality"></label><label>Locality<input v-model="locationForm.locality"></label><fieldset class="wide"><legend>Manual overrides</legend><div class="checkbox-grid"><label v-for="field in ['continent','country','region','province','county','city','municipality','locality']" :key="field"><input v-model="locationManual" type="checkbox" :value="field">Keep {{ field }} manual</label></div></fieldset><div class="form-actions wide"><button class="primary" @click="saveLocation">Save location</button><button class="secondary" @click="editingLocation = false">Cancel</button></div></div></section><section v-if="isManagement" class="form-section"><h3>Audit history</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div><button v-if="isGlobalAdmin" class="danger" @click="deleteEntity(selected.id)">Permanently delete entity</button></section><section v-else class="form-section"><h3>Review audit context</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div></section></article>
+  <article v-if="selected" id="entity-editor" class="panel editor-panel">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">{{ isManagement ? 'ENTITY MANAGEMENT' : 'REVIEW DECISION' }}</p>
+        <h2>{{ selected.name }}</h2>
+        <small class="muted">{{ selected.id }}</small>
+      </div>
+      <span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span>
+    </div>
+    <section class="form-section source-comparison">
+      <div class="section-heading">
+        <div>
+          <h3>Source comparison</h3>
+          <p class="field-help">The imported source snapshot remains immutable. Compare it with the current platform geometry before editing or recording a review decision.</p>
+        </div>
+      </div>
+      <div class="compare-grid">
+        <div><small class="muted">Source snapshot</small><pre class="data-preview">{{ sourceSnapshot(selected) }}</pre></div>
+        <div><small class="muted">Current platform geometry</small><pre class="data-preview">{{ JSON.stringify(selected.geometry || {}, null, 2) }}</pre></div>
+      </div>
+    </section>
+    <div class="editor-grid">
+      <section v-if="isManagement" class="form-section">
+        <h3>Entity name</h3>
+        <p class="field-help">Name changes are audited and do not alter the original source.</p>
+        <input v-model="editName">
+        <textarea v-model="editNote" placeholder="Explain this name change"></textarea>
+        <button class="primary" @click="saveName">Save name</button>
+      </section>
+      <section v-if="isManagement" class="form-section">
+        <h3>Entity categories</h3>
+        <p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p>
+        <div class="checkbox-grid">
+          <label v-for="category in categories" :key="category.code"><input v-model="editTypes" type="checkbox" :value="category.code">{{ category.label || category.code }}</label>
+        </div>
+        <button class="secondary" @click="saveCategories">Save categories</button>
+      </section>
+      <section class="form-section gis-admin-section">
+        <h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3>
+        <p v-if="isManagement" class="field-help">Global and GIS administrators can edit geometry explicitly. Point, LineString, MultiLineString, Polygon and MultiPolygon are supported. Use the map edit button above for vertex editing, or save a validated GeoJSON geometry below.</p>
+        <template v-if="isManagement">
+          <label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label>
+          <textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea>
+          <textarea v-model="geometryNote" placeholder="Geometry change note"></textarea>
+          <button class="primary" @click="saveGeometry">Save geometry</button>
+        </template>
+        <template v-else>
+          <label>Status<select v-model="reviewStatus"><option v-for="status in selectedStatusOptions" :key="status" :value="status">{{ status }}</option></select></label>
+          <textarea v-model="editNote" placeholder="Review note / decision evidence"></textarea>
+          <button class="primary" @click="saveStatus(reviewStatus)">Save review decision</button>
+        </template>
+      </section>
+    </div>
+    <section class="form-section">
+      <div class="section-heading">
+        <div>
+          <h3>Location metadata</h3>
+          <p class="field-help">Reverse-geocoded values are automatic unless a field is explicitly marked as a manual override. Provider codes are read-only.</p>
+        </div>
+        <div class="toolbar">
+          <button v-if="isManagement && missingLocationFields(selected).length" class="secondary" :disabled="locationEnrichmentSubmitting || selected.locationEnrichmentStatus === 'QUEUED'" @click="requestLocationEnrichment">
+            {{ locationEnrichmentSubmitting || selected.locationEnrichmentStatus === 'QUEUED' ? 'Location update queued' : selected.locationEnrichmentStatus === 'FAILED' ? 'Retry location update' : 'Update missing location data' }}
+          </button>
+          <button v-if="isManagement" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button>
+        </div>
+      </div>
+      <p v-if="isManagement && missingLocationFields(selected).length" class="field-help" role="status">
+        Missing: {{ missingLocationFields(selected).join(', ') }}.
+        <template v-if="selected.locationEnrichmentStatus === 'QUEUED'">The update is waiting for the geodata worker.</template>
+        <template v-else>Request a provider lookup for the current entity geometry; manually managed values are preserved.</template>
+      </p>
+      <p v-else-if="isManagement && selected.locationEnrichmentStatus === 'FAILED'" class="field-help" role="status">The last location lookup failed. Existing metadata was kept; retry when ready.</p>
+      <div v-if="!editingLocation" class="info-grid">
+        <div><span>Continent</span><strong>{{ locationValue(selected, 'continent') || '—' }}</strong></div>
+        <div><span>Country</span><strong>{{ locationValue(selected, 'country') || '—' }}</strong></div>
+        <div><span>Region</span><strong>{{ locationValue(selected, 'region') || '—' }}</strong></div>
+        <div><span>Province</span><strong>{{ locationValue(selected, 'province') || '—' }}</strong></div>
+        <div><span>County</span><strong>{{ locationValue(selected, 'county') || '—' }}</strong></div>
+        <div><span>City / municipality</span><strong>{{ locationValue(selected, 'city') || locationValue(selected, 'municipality') || '—' }}</strong></div>
+        <div><span>Maidenhead grid squares (4)</span><strong>{{ selected.maidenheadGridSquares4?.join(', ') || '—' }}</strong></div>
+        <div><span>Maidenhead locators (6)</span><strong>{{ selected.maidenheadLocators6?.join(', ') || '—' }}</strong></div>
+      </div>
+      <div v-else class="form-grid location-editor-grid">
+        <label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" list="location-options" @change="refreshLocationCodes(field)"><small class="field-help">Provider-derived name; choose a valid value.</small></label>
+        <datalist id="location-options"><option v-for="item in locationValues('country')" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist>
+        <label>Continent code<input v-model="locationForm.continentCode" readonly></label>
+        <label>Country code<input v-model="locationForm.countryCode" readonly></label>
+        <label>Subdivision code<input v-model="locationForm.subdivisionCode" readonly></label>
+        <label>Province code<input v-model="locationForm.provinceCode" readonly></label>
+        <label>County / equivalent<input v-model="locationForm.county"></label>
+        <label>City<input v-model="locationForm.city"></label>
+        <label>Municipality<input v-model="locationForm.municipality"></label>
+        <label>Locality<input v-model="locationForm.locality"></label>
+        <fieldset class="wide">
+          <legend>Manual overrides</legend>
+          <div class="checkbox-grid"><label v-for="field in ['continent','country','region','province','county','city','municipality','locality']" :key="field"><input v-model="locationManual" type="checkbox" :value="field">Keep {{ field }} manual</label></div>
+        </fieldset>
+        <div class="form-actions wide"><button class="primary" @click="saveLocation">Save location</button><button class="secondary" @click="editingLocation = false">Cancel</button></div>
+      </div>
+    </section>
+    <section v-if="isManagement" class="form-section">
+      <h3>Audit history</h3>
+      <div class="audit-list">
+        <div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div>
+        <p v-if="!auditEntries().length" class="muted">No audit entries available.</p>
+      </div>
+      <button v-if="isGlobalAdmin" class="danger" @click="deleteEntity(selected.id)">Permanently delete entity</button>
+    </section>
+    <section v-else class="form-section">
+      <h3>Review audit context</h3>
+      <div class="audit-list">
+        <div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div>
+        <p v-if="!auditEntries().length" class="muted">No audit entries available.</p>
+      </div>
+    </section>
+  </article>
   <div v-if="deletionModal" class="modal-backdrop" role="presentation" @click.self="cancelDelete">
     <article class="modal-card deletion-modal" role="alertdialog" aria-modal="true" aria-labelledby="deletion-title">
       <div class="panel-heading">

@@ -43,5 +43,6 @@ export interface GeoEntity {
   maidenheadGridSquares4?: string[];
   maidenheadLocators6?: string[];
   location?: Record<string, string | null | undefined>;
+  locationEnrichmentStatus?: 'QUEUED' | 'COMPLETED' | 'FAILED';
   provenance?: Record<string, unknown>;
 }

@@ -49,6 +49,7 @@ export const myotaClient = {
   createIdentityRole<T = unknown>(body: unknown) { return write<T>('/v1/identity/roles', 'POST', body); },
   patchIdentityRole<T = unknown>(code: string, body: unknown) { return write<T>(`/v1/identity/roles/${encodeURIComponent(code)}`, 'PATCH', body); },
   patchGeodataEntityMetadata<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}`, 'PATCH', body, version); },
+  postGeodataEntityLocationEnrichmentRequest<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/location-enrichment-requests`, 'POST', body, version); },
   putGeodataEntityGeometry<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/geometry`, 'PUT', body, version); },
   putGeodataEntityCategories<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/categories`, 'PUT', body, version); },
   postGeodataEntityReview<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/reviews`, 'POST', body, version); },
