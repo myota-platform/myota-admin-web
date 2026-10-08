@@ -27,6 +27,14 @@ the admin web should not absorb those participant-only responsibilities.
   reverse-geocoding from the current geometry; Entity Management polls the
   selected entity while that lookup is queued and refreshes the visible fields
   when the worker completes.
+- Entity Catalogue opens a keyboard-accessible, tabbed editor without scrolling
+  the page: name/categories, location, geometry, source comparison and audit/deletion.
+  Previous/next navigation preserves filters, pagination and the independent bulk
+  selection. Unsaved changes require confirmation before closing or switching
+  entities; saving one section preserves drafts in the others. Geometry has a
+  focused Leaflet/Geoman map with explicit vertex editing/replacement drawing.
+  Review decisions remain on the separate review page. See the
+  [catalogue guide](https://github.com/myota-platform/myota-docs/blob/main/docs/entity-catalogue-editor.md).
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Paged, filtered geodata review and protected geometry editing; permanent
   deletion of any lifecycle status requires global-administrator authorization

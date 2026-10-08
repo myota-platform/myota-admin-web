@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { ApiError, apiRequest } from '../lib/api';
 import { myotaClient } from '../lib/myotaClient';
 import { pendingDeletionStatuses, pollDeletionJobs } from '../lib/deletionPolling';
 import { useAppStore } from '../stores/app';
 import LeafletMap from '../components/LeafletMap.vue';
+import WorkspaceDialog from '../components/WorkspaceDialog.vue';
+import { dirtyEditorSections } from '../lib/entityEditor';
 import type { EntityCategory, GeoEntity } from '../types';
 
 const props = defineProps<{ mode: 'review' | 'management' }>();
@@ -26,6 +29,67 @@ const isManagement = computed(() => props.mode === 'management'); const allSelec
 const selectedStatusOptions = computed(() => ['APPROVED', 'RETIRED'].includes(selected.value?.status || '') ? ['RETIRED'] : statuses);
 const reviewStatus = ref('');
 const title = computed(() => isManagement.value ? 'Entity management' : 'Geodata review');
+type EditorTab = 'details' | 'location' | 'geometry' | 'source' | 'audit';
+const editorTabs: Array<{ id: EditorTab; label: string }> = [
+  { id: 'details', label: 'Name & categories' },
+  { id: 'location', label: 'Location' },
+  { id: 'geometry', label: 'Geometry' },
+  { id: 'source', label: 'Source comparison' },
+  { id: 'audit', label: 'Audit & deletion' },
+];
+const editorOpen = ref(false);
+const editorTab = ref<EditorTab>('details');
+const editorSaving = ref(false);
+const locationBaseline = ref('');
+const geometryDrawing = ref(false);
+const geometryMapEntities = ref<GeoEntity[]>([]);
+const selectedIndex = computed(() => entities.value.findIndex(item => item.id === selected.value?.id));
+const dirtySections = computed(() => selected.value ? dirtyEditorSections({
+  name: selected.value.name, nameNote: '', categories: categoryCodes(selected.value),
+  geometry: JSON.stringify(selected.value.geometry || {}, null, 2), geometryType: selected.value.geometry?.type || 'Point', geometryNote: '',
+  location: locationBaseline.value,
+}, {
+  name: editName.value, nameNote: editNote.value, categories: editTypes.value,
+  geometry: geometryJson.value, geometryType: geometryType.value, geometryNote: geometryNote.value,
+  location: editingLocation.value ? JSON.stringify([locationForm, locationManual.value]) : locationBaseline.value,
+}) : []);
+
+function canDiscardEdits(): boolean {
+  return !editorSaving.value && (!dirtySections.value.length || window.confirm(
+    `Discard unsaved changes in ${dirtySections.value.join(', ')}?`,
+  ));
+}
+function closeEditor(): void {
+  if (!canDiscardEdits()) return;
+  editorOpen.value = false;
+  editingId.value = '';
+  geometryDrawing.value = false;
+  if (selected.value) resetEditorFields(selected.value);
+}
+function setEditorTab(tab: EditorTab): void {
+  editingId.value = '';
+  geometryDrawing.value = false;
+  editorTab.value = tab;
+  if (tab === 'geometry' && selected.value) {
+    try {
+      geometryMapEntities.value = [{ ...selected.value, geometry: JSON.parse(geometryJson.value) }];
+    } catch {
+      geometryMapEntities.value = [selected.value];
+    }
+  }
+}
+function navigateEntity(offset: number): void {
+  const entity = entities.value[selectedIndex.value + offset];
+  if (selectedIndex.value >= 0 && entity) selectEntity(entity);
+}
+onBeforeRouteLeave(() => !isManagement.value || canDiscardEdits());
+onBeforeRouteUpdate(() => !isManagement.value || canDiscardEdits());
+watch(() => props.mode, () => {
+  editorOpen.value = false;
+  editingId.value = '';
+  geometryDrawing.value = false;
+  selected.value = null;
+});
 
 const entityConflict = ref(false);
 function setError(value: unknown): void {
@@ -34,7 +98,7 @@ function setError(value: unknown): void {
 }
 async function reloadConflictedEntity(): Promise<void> {
   if (!window.confirm('Reload the selected entity from the server? Unsaved edits will be discarded.')) return;
-  try { await refreshSelection(); error.value = ''; entityConflict.value = false; }
+  try { await refreshSelection(); if (selected.value) resetEditorFields(selected.value); setEditorTab(editorTab.value); error.value = ''; entityConflict.value = false; }
   catch (cause) { setError(cause); }
 }
 function categoryCodes(entity: GeoEntity): string[] { return (entity.entityTypes || (entity.entityType ? [entity.entityType] : [])).map(item => typeof item === 'string' ? item : item.code); }
@@ -60,16 +124,48 @@ function missingLocationFields(entity: GeoEntity): string[] {
 function sourceSnapshot(entity: GeoEntity): string { return JSON.stringify(entity.provenance?.sourceFeature || entity.provenance?.source || {}, null, 2); }
 function auditEntries(): AuditEntry[] { const value = audit.value; return (value.items || [...(value.reviewHistory || []), ...(value.geometryHistory || []), ...(value.statusHistory || [])]).sort((a, b) => String(b.occurredAt || b.editedAt || '').localeCompare(String(a.occurredAt || a.editedAt || ''))); }
 function query(): string { const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) }); if (filters.programme) params.set('programme', filters.programme); filters.status.forEach(status => params.append('status', status)); if (filters.entityType) params.set('entityType', filters.entityType); for (const key of ['continent', 'country', 'region', 'province', 'city']) { const value = filters[key as keyof typeof filters]; if (typeof value === 'string' && value) params.set(key, value); } return params.toString(); }
-async function load(): Promise<void> { loading.value = true; error.value = ''; try { const data = await apiRequest<{ items: GeoEntity[]; total?: number }>(`/v1/geodata/entities?${query()}`); entities.value = data.items || []; total.value = Number(data.total ?? entities.value.length); if (selected.value && !entities.value.some(item => item.id === selected.value?.id)) selected.value = null; } catch (e) { setError(e); } finally { loading.value = false; } }
+async function load(): Promise<void> { loading.value = true; error.value = ''; try { const data = await apiRequest<{ items: GeoEntity[]; total?: number }>(`/v1/geodata/entities?${query()}`); entities.value = data.items || []; total.value = Number(data.total ?? entities.value.length); if (!editorOpen.value && selected.value && !entities.value.some(item => item.id === selected.value?.id)) selected.value = null; } catch (e) { setError(e); } finally { loading.value = false; } }
 async function loadCategories(): Promise<void> { try { const data = await apiRequest<{ items: EntityCategory[] }>('/v1/entity-types'); categories.value = data.items || []; } catch (e) { setError(e); } }
 async function loadLocationOptions(): Promise<void> { locationLoading.value = true; try { const data = await apiRequest<{ continents: LocationOption[] }>('/v1/geodata/location-options'); locationOptions.value = data.continents || []; } catch (e) { setError(e); } finally { locationLoading.value = false; } }
-function selectEntity(entity: GeoEntity): void { selected.value = entity; editingId.value = ''; editName.value = entity.name; editNote.value = ''; geometryNote.value = ''; geometryJson.value = entity.geometry ? JSON.stringify(entity.geometry, null, 2) : ''; editTypes.value = categoryCodes(entity); geometryType.value = entity.geometry?.type || 'Point'; reviewStatus.value = entity.status; if (isManagement.value) window.setTimeout(() => document.getElementById('entity-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0); loadAudit(entity.id); }
+function resetEditorFields(entity: GeoEntity): void {
+  editingId.value = '';
+  editingLocation.value = false;
+  editName.value = entity.name;
+  editNote.value = '';
+  geometryNote.value = '';
+  geometryJson.value = JSON.stringify(entity.geometry || {}, null, 2);
+  editTypes.value = categoryCodes(entity);
+  geometryType.value = entity.geometry?.type || 'Point';
+  reviewStatus.value = entity.status;
+}
+function selectEntity(entity: GeoEntity): void {
+  if (isManagement.value && selected.value && selected.value.id !== entity.id && !canDiscardEdits()) return;
+  const changed = selected.value?.id !== entity.id;
+  selected.value = entity;
+  if (changed || !editorOpen.value) resetEditorFields(entity);
+  if (isManagement.value) {
+    editorOpen.value = true;
+    setEditorTab(changed ? 'details' : editorTab.value);
+  }
+  loadAudit(entity.id);
+}
 async function refreshSelection(): Promise<void> {
   if (!selected.value) return;
-  const entity = await apiRequest<GeoEntity>(`/v1/geodata/entities/${encodeURIComponent(selected.value.id)}`);
-  selectEntity(entity);
+  const id = selected.value.id;
+  const entity = await apiRequest<GeoEntity>(`/v1/geodata/entities/${encodeURIComponent(id)}`);
+  if (selected.value?.id !== id) return;
+  selected.value = entity;
+  const index = entities.value.findIndex(item => item.id === id);
+  if (index >= 0) entities.value[index] = entity;
+  await loadAudit(id);
 }
-async function loadAudit(id: string): Promise<void> { try { audit.value = await apiRequest<AuditData>(`/v1/geodata/entities/${encodeURIComponent(id)}/audit`); } catch { audit.value = {}; } }
+async function loadAudit(id: string): Promise<void> {
+  audit.value = {};
+  try {
+    const data = await apiRequest<AuditData>(`/v1/geodata/entities/${encodeURIComponent(id)}/audit`);
+    if (selected.value?.id === id) audit.value = data;
+  } catch { if (selected.value?.id === id) audit.value = {}; }
+}
 function toggleStatus(status: string): void { filters.status = filters.status.includes(status) ? filters.status.filter(item => item !== status) : [...filters.status, status]; page.value = 1; load(); }
 function toggleAll(): void { selectedIds.value = allSelected.value ? [] : entities.value.map(item => item.id); }
 function toggleEntity(id: string): void { selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(item => item !== id) : [...selectedIds.value, id]; }
@@ -276,12 +372,72 @@ async function retryBulkDeletionPreparation(): Promise<void> {
   const pending = deletionModal.value;
   if (pending?.kind === 'bulk') await prepareBulkDeletionJobs(pending);
 }
-async function saveName(): Promise<void> { if (!selected.value || !editName.value.trim()) return; try { await myotaClient.patchGeodataEntityMetadata(selected.value.id, { name: editName.value.trim(), note: editNote.value, editorId: store.account?.id }, selected.value.version); message.value = 'Entity name saved.'; await load(); const refreshed = entities.value.find(item => item.id === selected.value?.id); if (refreshed) selectEntity(refreshed); } catch (e) { setError(e); } }
-async function saveCategories(): Promise<void> { if (!selected.value) return; try { await myotaClient.putGeodataEntityCategories(selected.value.id, { entityTypes: editTypes.value, editorId: store.account?.id }, selected.value.version); message.value = 'Entity categories saved.'; await load(); await refreshSelection(); } catch (e) { setError(e); } }
-async function saveGeometry(): Promise<void> { if (!selected.value) return; try { const geometry = JSON.parse(geometryJson.value); geometry.type = geometryType.value; await myotaClient.putGeodataEntityGeometry(selected.value.id, { geometry, note: geometryNote.value, editorId: store.account?.id }, selected.value.version); message.value = 'Geometry saved.'; await load(); await refreshSelection(); } catch (e) { setError(e instanceof SyntaxError ? new Error('Geometry must be valid JSON.') : e); } }
-function startGeometryEdit(): void { if (selected.value?.geometry && selected.value.status !== 'RETIRED') { editingId.value = selected.value.id; geometryJson.value = JSON.stringify(selected.value.geometry, null, 2); geometryType.value = selected.value.geometry.type; } }
-function stopGeometryEdit(): void { editingId.value = ''; }
+async function saveEditorSection(section: string, update: () => Promise<unknown>): Promise<void> {
+  if (editorSaving.value) return;
+  editorSaving.value = true;
+  error.value = '';
+  try {
+    await update();
+    await refreshSelection();
+    if (section === 'Name') editNote.value = '';
+    if (section === 'Location') editingLocation.value = false;
+    if (section === 'Geometry' && selected.value) {
+      geometryJson.value = JSON.stringify(selected.value.geometry || {}, null, 2);
+      geometryType.value = selected.value.geometry?.type || 'Point';
+      geometryNote.value = '';
+      editingId.value = '';
+      geometryDrawing.value = false;
+      geometryMapEntities.value = [selected.value];
+    }
+    message.value = `${section} saved. Other unsaved sections are kept open.`;
+    await load();
+  } catch (cause) {
+    setError(cause instanceof SyntaxError ? new Error('Geometry must be valid JSON.') : cause);
+  } finally {
+    editorSaving.value = false;
+  }
+}
+async function saveName(): Promise<void> {
+  const entity = selected.value;
+  if (!entity || !editName.value.trim()) return;
+  await saveEditorSection('Name', () => myotaClient.patchGeodataEntityMetadata(entity.id,
+    { name: editName.value.trim(), note: editNote.value, editorId: store.account?.id }, entity.version));
+}
+async function saveCategories(): Promise<void> {
+  const entity = selected.value;
+  if (!entity) return;
+  await saveEditorSection('Categories', () => myotaClient.putGeodataEntityCategories(entity.id,
+    { entityTypes: editTypes.value, editorId: store.account?.id }, entity.version));
+}
+async function saveGeometry(): Promise<void> {
+  const entity = selected.value;
+  if (!entity || entity.status === 'RETIRED') return;
+  await saveEditorSection('Geometry', () => {
+    const geometry = JSON.parse(geometryJson.value);
+    geometry.type = geometryType.value;
+    return myotaClient.putGeodataEntityGeometry(entity.id,
+      { geometry, note: geometryNote.value, editorId: store.account?.id }, entity.version);
+  });
+}
+function startGeometryEdit(): void {
+  if (!selected.value?.geometry || selected.value.status === 'RETIRED') return;
+  if (editorTab.value !== 'geometry' || !editorOpen.value) setEditorTab('geometry');
+  editorOpen.value = true;
+  geometryDrawing.value = false;
+  editingId.value = selected.value.id;
+}
+function stopGeometryEdit(): void { editingId.value = ''; geometryDrawing.value = false; }
 function onGeometryChange(geometry: { type: string; coordinates: unknown }): void { geometryJson.value = JSON.stringify(geometry, null, 2); geometryType.value = geometry.type; }
+function drawReplacement(mode: 'POINT' | 'WAY' | 'POLYGON'): void {
+  editingId.value = '';
+  drawingMode.value = mode;
+  geometryDrawing.value = true;
+}
+function onGeometryDrawCreated(geometry: { type: string; coordinates: unknown }): void {
+  onGeometryChange(geometry);
+  geometryDrawing.value = false;
+  if (selected.value) geometryMapEntities.value = [{ ...selected.value, geometry }];
+}
 function startDrawing(mode: 'POINT' | 'WAY' | 'POLYGON'): void { drawingMode.value = mode; drawing.value = true; }
 function onDrawCreated(geometry: { type: string; coordinates: unknown }): void { newGeometry.value = JSON.stringify(geometry, null, 2); drawing.value = false; }
 function fillLocationForm(entity: GeoEntity): void { for (const key of Object.keys(locationForm) as Array<keyof typeof locationForm>) locationForm[key] = locationValue(entity, key); locationManual.value = [...(((entity as any).manualLocationFields || []) as string[])]; }
@@ -295,10 +451,33 @@ function locationProvinces(): LocationOption[] { const region = selectedRegion()
 function selectedProvince(): LocationOption | undefined { return locationProvinces().find(item => item.name === filters.province); }
 function locationCities(): LocationOption[] { const province = selectedProvince(); if (province?.cities?.length) return uniqueLocationOptions(province.cities); const region = selectedRegion(); if (region?.cities?.length) return uniqueLocationOptions(region.cities); const country = selectedCountry(); return uniqueLocationOptions(country ? country.cities || [] : locationCountries().flatMap(item => item.cities || [])); }
 function locationOptionLabel(item: LocationOption): string { return item.code ? `${item.name} (${item.code})` : item.name; }
-async function startLocationEdit(): Promise<void> { if (!selected.value) return; fillLocationForm(selected.value); if (!locationOptions.value.length) await loadLocationOptions(); editingLocation.value = true; }
-function locationValues(field: string): LocationOption[] { if (field === 'continent') return locationOptions.value; const countries = locationCountries(); if (field === 'country') return countries; const country = countries.find(item => item.name === locationForm.country); const regions = country ? country.subdivisions || [] : countries.flatMap(item => item.subdivisions || []); if (field === 'region') return regions; const region = regions.find(item => item.name === locationForm.region); return region ? region.provinces || [] : regions.flatMap(item => item.provinces || []); }
+async function startLocationEdit(): Promise<void> {
+  if (!selected.value) return;
+  if (editingLocation.value && !window.confirm('Discard unsaved location edits and reload?')) return;
+  fillLocationForm(selected.value);
+  locationBaseline.value = JSON.stringify([locationForm, locationManual.value]);
+  if (!locationOptions.value.length) await loadLocationOptions();
+  editingLocation.value = true;
+}
+function locationValues(field: string): LocationOption[] {
+  if (field === 'continent') return locationOptions.value;
+  const continent = locationOptions.value.find(item => item.name === locationForm.continent);
+  const countries = continent?.countries || locationOptions.value.flatMap(item => item.countries || []);
+  if (field === 'country') return countries;
+  const country = countries.find(item => item.name === locationForm.country);
+  const regions = country ? country.subdivisions || [] : countries.flatMap(item => item.subdivisions || []);
+  if (field === 'region') return regions;
+  const region = regions.find(item => item.name === locationForm.region);
+  return region ? region.provinces || [] : regions.flatMap(item => item.provinces || []);
+}
 function refreshLocationCodes(field: string): void { const match = locationValues(field).find(item => item.name === locationForm[field as keyof typeof locationForm]); if (field === 'continent') locationForm.continentCode = match?.code || ''; if (field === 'country') locationForm.countryCode = match?.code || ''; if (field === 'region') { locationForm.regionCode = match?.code || ''; locationForm.subdivisionCode = match?.code || ''; } if (field === 'province') locationForm.provinceCode = match?.code || ''; }
-async function saveLocation(): Promise<void> { if (!selected.value) return; try { const location = { ...locationForm, region: locationForm.region || null, subdivision: locationForm.region || null }; await myotaClient.patchGeodataEntityMetadata(selected.value.id, { location, manualFields: locationManual.value, editorId: store.account?.id }, selected.value.version); message.value = 'Location metadata saved.'; editingLocation.value = false; await load(); const refreshed = entities.value.find(item => item.id === selected.value?.id); if (refreshed) selectEntity(refreshed); } catch (e) { setError(e); } }
+async function saveLocation(): Promise<void> {
+  const entity = selected.value;
+  if (!entity) return;
+  const location = { ...locationForm, region: locationForm.region || null, subdivision: locationForm.region || null };
+  await saveEditorSection('Location', () => myotaClient.patchGeodataEntityMetadata(entity.id,
+    { location, manualFields: locationManual.value, editorId: store.account?.id }, entity.version));
+}
 async function requestLocationEnrichment(): Promise<void> {
   if (!selected.value || !missingLocationFields(selected.value).length) return;
   locationEnrichmentSubmitting.value = true;
@@ -380,14 +559,37 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
 </script>
 
 <template>
-  <section class="page-heading"><div><p class="eyebrow">GEODATA</p><h1>{{ title }}</h1><p class="muted">{{ isManagement ? 'Edit catalogue data, geometry, categories and audit history.' : 'Review candidate entities and make durable status decisions.' }}</p></div><div class="heading-actions"><button class="secondary" @click="load">Refresh</button><button v-if="!isManagement" class="primary" @click="creating = !creating">New Candidate</button><button v-if="isManagement" class="primary" @click="selected = null">New entity</button></div></section>
+  <section class="page-heading"><div><p class="eyebrow">GEODATA</p><h1>{{ title }}</h1><p class="muted">{{ isManagement ? 'Open any entity to edit it without leaving the catalogue. Your filters, page and bulk selection stay in place.' : 'Review candidate entities and make durable status decisions.' }}</p></div><div class="heading-actions"><button class="secondary" @click="load">Refresh</button><button class="primary" @click="creating = !creating">New Candidate</button></div></section>
   <div v-if="message" class="notice" role="status">{{ message }}</div><div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict && selected" class="secondary" @click="reloadConflictedEntity">Reload selected entity</button></div>
   <article class="panel filter-panel"><div class="top-controls"><label>Programme<select v-model="filters.programme"><option value="">All programmes, including unassigned</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label></div><div class="geo-filter-grid"><label>Entity type<select v-model="filters.entityType"><option value="">All types</option><option v-for="category in categories" :key="category.code" :value="category.code">{{ category.label || category.code }}</option></select></label><label>Continent<select v-model="filters.continent" :disabled="locationLoading"><option value="">All continents</option><option v-for="item in locationOptions" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Country<select v-model="filters.country" :disabled="locationLoading || !locationCountries().length"><option value="">All countries</option><option v-for="item in locationCountries()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Region / subdivision<select v-model="filters.region" :disabled="locationLoading || !locationRegions().length"><option value="">All regions / subdivisions</option><option v-for="item in locationRegions()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Province<select v-model="filters.province" :disabled="locationLoading || !locationProvinces().length"><option value="">All provinces</option><option v-for="item in locationProvinces()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>City / municipality<select v-model="filters.city" :disabled="locationLoading || !locationCities().length"><option value="">All cities / municipalities</option><option v-for="item in locationCities()" :key="item.name" :value="item.name">{{ item.name }}</option></select></label></div><div class="status-filters"><span>Status:</span><label v-for="status in statuses" :key="status"><input type="checkbox" :checked="filters.status.includes(status)" @change="toggleStatus(status)">{{ status }}</label></div></article>
   <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" required></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
   <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small><small class="locator-values">4-character grid squares: {{ entity.maidenheadGridSquares4?.join(', ') || '—' }} · 6-character locators: {{ entity.maidenheadLocators6?.join(', ') || '—' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
-  <article class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :editable-id="isManagement ? editingId : undefined" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @geometry-change="onGeometryChange" @draw-created="onDrawCreated"></LeafletMap><div v-if="isManagement && selected" class="map-actions"><button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry</button><button v-if="editingId" class="secondary" @click="stopGeometryEdit">Exit edit mode</button></div></article>
-  <article v-if="selected" id="entity-editor" class="panel editor-panel">
-    <div class="panel-heading">
+  <article v-if="!isManagement || creating" class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @draw-created="onDrawCreated" /></article>
+  <details v-else class="panel map-panel catalogue-map">
+    <summary>Browse the catalogue on a map <small class="muted">Optional · click an entity to open its editor</small></summary>
+    <LeafletMap :entities="entities" :selected-id="selected?.id" height="520px" @select="selectEntity" />
+  </details>
+  <component :is="isManagement ? WorkspaceDialog : 'article'" v-if="selected"
+    :open="editorOpen" :title="selected.name" eyebrow="ENTITY MANAGEMENT"
+    :class="!isManagement ? 'panel editor-panel' : undefined" @request-close="closeEditor">
+    <template v-if="isManagement">
+      <div class="editor-context">
+        <span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span>
+        <small class="muted">{{ selected.id }}</small>
+        <div class="toolbar">
+          <button class="secondary" :disabled="editorSaving || selectedIndex <= 0" @click="navigateEntity(-1)">Previous entity</button>
+          <button class="secondary" :disabled="editorSaving || selectedIndex < 0 || selectedIndex >= entities.length - 1" @click="navigateEntity(1)">Next entity</button>
+        </div>
+      </div>
+      <nav class="editor-tabs" aria-label="Entity editing sections">
+        <button v-for="tab in editorTabs" :key="tab.id" type="button" class="secondary"
+          :aria-current="editorTab === tab.id ? 'page' : undefined" @click="setEditorTab(tab.id)">{{ tab.label }}</button>
+      </nav>
+      <p v-if="dirtySections.length" class="editor-dirty" role="status">Unsaved: {{ dirtySections.join(', ') }}. Save each edited section before closing.</p>
+      <div v-if="message" class="notice" role="status">{{ message }}</div>
+      <div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict" class="secondary" :disabled="editorSaving" @click="reloadConflictedEntity">Reload selected entity</button></div>
+    </template>
+    <div v-else class="panel-heading">
       <div>
         <p class="eyebrow">{{ isManagement ? 'ENTITY MANAGEMENT' : 'REVIEW DECISION' }}</p>
         <h2>{{ selected.name }}</h2>
@@ -395,7 +597,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
       </div>
       <span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span>
     </div>
-    <section class="form-section source-comparison">
+    <section v-show="!isManagement || editorTab === 'source'" class="form-section source-comparison">
       <div class="section-heading">
         <div>
           <h3>Source comparison</h3>
@@ -407,15 +609,16 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <div><small class="muted">Current platform geometry</small><pre class="data-preview">{{ JSON.stringify(selected.geometry || {}, null, 2) }}</pre></div>
       </div>
     </section>
-    <div class="editor-grid">
-      <section v-if="isManagement" class="form-section">
+    <fieldset :disabled="editorSaving" class="editor-fields">
+    <div class="editor-grid" :class="{ 'management-details-grid': isManagement }">
+      <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity name</h3>
         <p class="field-help">Name changes are audited and do not alter the original source.</p>
-        <input v-model="editName">
-        <textarea v-model="editNote" placeholder="Explain this name change"></textarea>
-        <button class="primary" @click="saveName">Save name</button>
+        <label>Display name<input v-model="editName"></label>
+        <label>Name change note<textarea v-model="editNote" placeholder="Explain this name change"></textarea></label>
+        <button class="primary" :disabled="!editName.trim()" @click="saveName">Save name</button>
       </section>
-      <section v-if="isManagement" class="form-section">
+      <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity categories</h3>
         <p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p>
         <div class="checkbox-grid">
@@ -423,14 +626,28 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         </div>
         <button class="secondary" @click="saveCategories">Save categories</button>
       </section>
-      <section class="form-section gis-admin-section">
+      <section v-show="!isManagement || editorTab === 'geometry'" class="form-section gis-admin-section" :class="{ wide: isManagement }">
         <h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3>
-        <p v-if="isManagement" class="field-help">Global and GIS administrators can edit geometry explicitly. Point, LineString, MultiLineString, Polygon and MultiPolygon are supported. Use the map edit button above for vertex editing, or save a validated GeoJSON geometry below.</p>
+        <p v-if="isManagement" class="field-help">The map is read-only until you enable vertex editing or draw a replacement. Changes stay in this draft until Save geometry; closing without saving preserves the stored geometry.</p>
         <template v-if="isManagement">
+          <LeafletMap v-if="editorTab === 'geometry'" :entities="geometryMapEntities" :selected-id="selected.id"
+            :editable-id="editingId" :drawing="geometryDrawing" :drawing-mode="drawingMode"
+            :show-clusters="false" height="min(42vh, 440px)" @geometry-change="onGeometryChange" @draw-created="onGeometryDrawCreated" />
+          <div class="toolbar geometry-tools">
+            <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry vertices</button>
+            <button v-if="editingId || geometryDrawing" class="secondary" @click="stopGeometryEdit">Stop editing / drawing</button>
+            <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="drawReplacement('POINT')">Replace with point</button>
+            <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="drawReplacement('WAY')">Draw replacement trail</button>
+            <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="drawReplacement('POLYGON')">Draw replacement polygon</button>
+          </div>
+          <p v-if="selected.status === 'RETIRED'" class="notice">Retired entity geometry is read-only.</p>
+          <details class="geometry-json"><summary>Advanced GeoJSON / geometry type</summary>
           <label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label>
           <textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea>
-          <textarea v-model="geometryNote" placeholder="Geometry change note"></textarea>
-          <button class="primary" @click="saveGeometry">Save geometry</button>
+          <p class="field-help">Coordinates must match the chosen type. The API validates the geometry before storing it.</p>
+          </details>
+          <label>Geometry change note<textarea v-model="geometryNote" placeholder="Explain why the geometry was adjusted"></textarea></label>
+          <button class="primary" :disabled="selected.status === 'RETIRED'" @click="saveGeometry">Save geometry</button>
         </template>
         <template v-else>
           <label>Status<select v-model="reviewStatus"><option v-for="status in selectedStatusOptions" :key="status" :value="status">{{ status }}</option></select></label>
@@ -439,7 +656,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         </template>
       </section>
     </div>
-    <section class="form-section">
+    <section v-show="!isManagement || editorTab === 'location'" class="form-section">
       <div class="section-heading">
         <div>
           <h3>Location metadata</h3>
@@ -469,8 +686,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <div><span>Maidenhead locators (6)</span><strong>{{ selected.maidenheadLocators6?.join(', ') || '—' }}</strong></div>
       </div>
       <div v-else class="form-grid location-editor-grid">
-        <label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" list="location-options" @change="refreshLocationCodes(field)"><small class="field-help">Provider-derived name; choose a valid value.</small></label>
-        <datalist id="location-options"><option v-for="item in locationValues('country')" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist>
+        <label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" :list="`location-options-${field}`" @change="refreshLocationCodes(field)"><datalist :id="`location-options-${field}`"><option v-for="item in locationValues(field)" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist><small class="field-help">Provider-derived name; choose a valid value.</small></label>
         <label>Continent code<input v-model="locationForm.continentCode" readonly></label>
         <label>Country code<input v-model="locationForm.countryCode" readonly></label>
         <label>Subdivision code<input v-model="locationForm.subdivisionCode" readonly></label>
@@ -486,7 +702,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <div class="form-actions wide"><button class="primary" @click="saveLocation">Save location</button><button class="secondary" @click="editingLocation = false">Cancel</button></div>
       </div>
     </section>
-    <section v-if="isManagement" class="form-section">
+    <section v-if="isManagement" v-show="editorTab === 'audit'" class="form-section">
       <h3>Audit history</h3>
       <div class="audit-list">
         <div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div>
@@ -501,13 +717,12 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <p v-if="!auditEntries().length" class="muted">No audit entries available.</p>
       </div>
     </section>
-  </article>
-  <div v-if="deletionModal" class="modal-backdrop" role="presentation" @click.self="cancelDelete">
-    <article class="modal-card deletion-modal" role="alertdialog" aria-modal="true" aria-labelledby="deletion-title">
-      <div class="panel-heading">
-        <div><p class="eyebrow">PERMANENT DELETION</p><h2 id="deletion-title">{{ deletionModal.kind === 'single' ? `Delete ${deletionModal.entity.name}?` : `Delete ${deletionModal.totalCount} entities?` }}</h2></div>
-        <button class="quiet" type="button" @click="cancelDelete">Close</button>
-      </div>
+    </fieldset>
+  </component>
+  <WorkspaceDialog v-if="deletionModal" :open="true" compact eyebrow="PERMANENT DELETION"
+    :title="deletionModal.kind === 'single' ? `Delete ${deletionModal.entity.name}?` : `Delete ${deletionModal.totalCount} entities?`"
+    @request-close="cancelDelete">
+      <div v-if="error" class="error-card" role="alert">{{ error }}</div>
       <ul v-if="deletionModal.kind === 'bulk'" class="bulk-delete-list">
         <li v-for="item in deletionModal.items" :key="item.entity.id">
           <strong>{{ item.entity.name }}</strong>
@@ -531,6 +746,5 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
           {{ deleting ? 'Processing deletion jobs…' : deletionModal.kind === 'single' ? pendingDeletionStatuses.has(String(deletionModal.job.status).toUpperCase()) ? 'Check deletion status' : String(deletionModal.job.status).toUpperCase() === 'FAILED' ? 'Deletion failed' : 'Permanently delete entity' : preparingBulkDelete ? 'Preparing deletion details…' : bulkPreparationFailed ? 'Resolve preparation errors first' : deletionModal.items.some(item => pendingDeletionStatuses.has(String(item.job.status).toUpperCase())) ? 'Check deletion status' : `Permanently delete ${deletionModal.items.length} entities` }}
         </button>
       </div>
-    </article>
-  </div>
+  </WorkspaceDialog>
 </template>

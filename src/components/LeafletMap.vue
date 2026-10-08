@@ -26,6 +26,25 @@ let pointCluster: any = null;
 let layerById = new Map<string, any>();
 let editingLayer: any = null;
 let drawingLayer: any = null;
+let resizeObserver: ResizeObserver | undefined;
+let mapWasVisible = false;
+
+// Maps can now live in dialogs and collapsed catalogue panels. Recompute tile
+// placement when the actual container becomes visible or changes size.
+onMounted(() => {
+  if (!mapElement.value) return;
+  resizeObserver = new ResizeObserver(() => {
+    if (!map || !mapElement.value?.clientWidth || !mapElement.value.clientHeight) {
+      mapWasVisible = false;
+      return;
+    }
+    map.invalidateSize({ pan: false });
+    if (!mapWasVisible) focusSelected(false);
+    mapWasVisible = true;
+  });
+  resizeObserver.observe(mapElement.value);
+});
+onBeforeUnmount(() => resizeObserver?.disconnect());
 
 const colors: Record<string, [string, string]> = {
   CANDIDATE: ['#fbbf24', '#7c5410'], APPROVED: ['#10b981', '#065f46'],
@@ -56,7 +75,7 @@ function addEntity(entity: GeoEntity): void {
 }
 function renderLayers(): void { if (!map || !window.L) return; geometryLayers?.clearLayers(); pointCluster?.clearLayers(); layerById = new Map(); props.entities.filter(entity => entity.geometry).forEach(addEntity); if (!props.selectedId) fitAll(); applyEditing(); }
 function fitAll(): void { const bounds = window.L.latLngBounds([]); props.entities.filter(entity => entity.geometry).forEach(entity => { const next = window.L.geoJSON(feature(entity)).getBounds(); if (next.isValid()) bounds.extend(next); }); if (bounds.isValid()) map.fitBounds(bounds, { padding: [35, 35], maxZoom: 16 }); }
-function focusSelected(): void { const entity = props.entities.find(item => item.id === props.selectedId); if (!map || !entity?.geometry || !window.L) return; const layer = layerById.get(entity.id); if (layer && pointCluster?.hasLayer?.(layer) && pointCluster.zoomToShowLayer) pointCluster.zoomToShowLayer(layer, () => layer.openPopup?.()); const bounds = window.L.geoJSON(feature(entity)).getBounds(); if (!bounds.isValid()) return; if (entity.geometry.type === 'Point') map.setView(bounds.getCenter(), Math.max(map.getZoom(), 15), { animate: true }); else map.fitBounds(bounds, { padding: [70, 70], maxZoom: 17, animate: true }); }
+function focusSelected(animate = true): void { const entity = props.entities.find(item => item.id === props.selectedId); if (!map || !entity?.geometry || !window.L) return; const layer = layerById.get(entity.id); if (layer && pointCluster?.hasLayer?.(layer) && pointCluster.zoomToShowLayer) pointCluster.zoomToShowLayer(layer, () => layer.openPopup?.()); const bounds = window.L.geoJSON(feature(entity)).getBounds(); if (!bounds.isValid()) return; if (entity.geometry.type === 'Point') map.setView(bounds.getCenter(), Math.max(map.getZoom(), 15), { animate }); else map.fitBounds(bounds, { padding: [70, 70], maxZoom: 17, animate }); }
 function applyEditing(): void { if (editingLayer?.pm) editingLayer.pm.disable(); editingLayer = null; if (!props.editableId) return; editingLayer = layerById.get(props.editableId); if (typeof editingLayer?.pm?.enable === 'function') { editingLayer.pm.enable({ allowSelfIntersection: false, snappable: true }); editingLayer.bringToFront?.(); } }
 function disableDrawing(): void { map?.pm?.disableDraw?.(); drawingLayer?.remove?.(); drawingLayer = null; }
 function syncDrawing(): void { if (!map?.pm) return; disableDrawing(); if (!props.drawing) return; const shape = props.drawingMode === 'POINT' ? 'CircleMarker' : props.drawingMode === 'WAY' ? 'Line' : 'Polygon'; map.pm.enableDraw(shape, { snappable: true, allowSelfIntersection: false, markerStyle: { radius: 8, color: '#123d3a', fillColor: '#10b981', fillOpacity: .9 } }); }
