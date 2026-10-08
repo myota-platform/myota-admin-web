@@ -13,6 +13,7 @@ import GeodataImportsView from './views/GeodataImportsView.vue';
 import GeodataWorkspaceView from './views/GeodataWorkspaceView.vue';
 import EntityMapView from './views/EntityMapView.vue';
 import JetStreamView from './views/JetStreamView.vue';
+import ObjectStorageView from './views/ObjectStorageView.vue';
 
 const routes = [
   { path: '/login', component: LoginView, meta: { public: true } },
@@ -30,6 +31,7 @@ const routes = [
   { path: '/entity-map', component: EntityMapView, meta: { title: 'Map explorer' } },
   { path: '/geodata-imports', component: GeodataImportsView, meta: { title: 'Geodata imports' } },
   { path: '/jetstream', component: JetStreamView, meta: { title: 'NATS / JetStream' } },
+  { path: '/object-storage', component: ObjectStorageView, meta: { title: 'SeaweedFS storage' } },
   { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
 ];
 

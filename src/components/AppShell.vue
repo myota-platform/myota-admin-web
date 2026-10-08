@@ -36,7 +36,7 @@ async function signOut(): Promise<void> { store.signOut(); await router.push('/l
 async function openObservability(): Promise<void> {
   try {
     // Refresh an expired access token before leaving the SPA for the proxied Grafana UI.
-    await apiRequest('/v1/identity/me');
+    await apiRequest('/v1/operations/observability-session');
     window.location.assign('/observability/');
   } catch {
     store.signOut();
@@ -66,6 +66,7 @@ async function openObservability(): Promise<void> {
       <nav class="nav-section" aria-label="Observability">
         <p class="nav-section-label">Platform health</p>
         <RouterLink class="nav-item" :class="{ active: isActive('/jetstream') }" to="/jetstream"><span class="nav-item-icon" aria-hidden="true">⇄</span>NATS / JetStream</RouterLink>
+        <RouterLink class="nav-item" :class="{ active: isActive('/object-storage') }" to="/object-storage"><span class="nav-item-icon" aria-hidden="true">▤</span>SeaweedFS storage</RouterLink>
         <a class="nav-item" href="/observability/" @click.prevent="openObservability"><span class="nav-item-icon" aria-hidden="true">⌁</span>Observability</a>
       </nav>
       <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p></div>
