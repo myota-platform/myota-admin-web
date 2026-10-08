@@ -140,3 +140,19 @@ test('review decisions remain inline and small-screen editor fits the viewport',
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath('mobile-editor.png') });
 });
+
+test('optional catalogue map and manual candidate drawing remain usable', async ({ page }) => {
+  await page.locator('.catalogue-map summary').click();
+  await expect(page.locator('.catalogue-map .leaflet-map canvas')).toBeVisible();
+  await page.getByRole('button', { name: 'New Candidate', exact: true }).click();
+  const proposal = page.locator('article').filter({ has: page.getByRole('heading', { name: 'New Candidate', exact: true }) });
+  await proposal.getByLabel('Name', { exact: true }).fill('Manual fixture candidate');
+  await proposal.getByLabel('Park', { exact: true }).check();
+  await proposal.getByRole('button', { name: 'Draw point on map' }).click();
+  await page.locator('.map-panel .leaflet-map').click({ position: { x: 220, y: 180 } });
+  const geometry = JSON.parse(await proposal.getByLabel(/^GeoJSON geometry/).inputValue());
+  expect(geometry.type).toBe('Point');
+  expect(geometry.coordinates).not.toEqual([-5.99, 37.39]);
+  await proposal.getByRole('button', { name: 'Submit candidate' }).click();
+  await expect(proposal).toHaveCount(0);
+});

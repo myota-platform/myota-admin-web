@@ -39,7 +39,10 @@ onMounted(() => {
       return;
     }
     map.invalidateSize({ pan: false });
-    if (!mapWasVisible) focusSelected(false);
+    if (!mapWasVisible) {
+      if (props.selectedId) focusSelected(false);
+      else fitAll();
+    }
     mapWasVisible = true;
   });
   resizeObserver.observe(mapElement.value);
