@@ -29,6 +29,7 @@ export const myotaClient = {
   postGeodataEntityReview<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/reviews`, 'POST', body, version); },
   postGeodataProposal<T = unknown>(body: unknown) { return write<T>('/v1/geodata/proposals', 'POST', body); },
   createGeodataEntityDeletionJob<T = unknown>(body: unknown) { return write<T>('/v1/geodata/entity-deletion-jobs', 'POST', body); },
+  getGeodataEntityDeletionJob<T = unknown>(jobId: string) { return apiRequest<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}`); },
   confirmGeodataEntityDeletionJob<T = unknown>(jobId: string, body: unknown) { return write<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}/confirm`, 'POST', body); },
   patchAward<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/awards/${encodeURIComponent(id)}`, 'PATCH', body); },
 };
