@@ -40,6 +40,8 @@ export interface GeoEntity {
   programmeSlug?: string;
   programmes?: Array<string | { slug: string; name?: string }>;
   geometry?: { type: string; coordinates: unknown };
+  maidenheadGridSquares4?: string[];
+  maidenheadLocators6?: string[];
   location?: Record<string, string | null | undefined>;
   provenance?: Record<string, unknown>;
 }
