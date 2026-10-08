@@ -113,7 +113,16 @@ npm install
 npm run typecheck
 npm test
 npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
+
+Browser regressions use actual Vue/Leaflet/Geoman with isolated API fixtures,
+block public tile traffic, and never mutate live entities. The publishing
+workflow runs them and retains desktop/mobile screenshot evidence. A separate
+read-only live check is available in `scripts/verify-catalogue-live.mjs`; it
+accepts a short-lived access-token JSON object through stdin (never a password
+or command-line token) and blocks non-GET API requests.
 
 ## Map tiles and editing
 
