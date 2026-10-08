@@ -29,6 +29,16 @@ jobs:
           npm test
           npm run typecheck
           npm run build
+      - name: Install browser regression runtime
+        run: npx playwright install --with-deps chromium
+      - name: Check catalogue dialogs, geometry editing and deletion regressions
+        run: npm run test:e2e
+      - name: Retain isolated browser screenshots and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-browser-evidence
+          path: test-results/
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
