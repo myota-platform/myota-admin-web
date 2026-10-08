@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ApiError, apiRequest } from '../lib/api';
 import { myotaClient } from '../lib/myotaClient';
+import { pendingDeletionStatuses, pollDeletionJobs } from '../lib/deletionPolling';
 import { useAppStore } from '../stores/app';
 import LeafletMap from '../components/LeafletMap.vue';
 import type { EntityCategory, GeoEntity } from '../types';
@@ -66,47 +67,44 @@ const preparingBulkDelete = ref(false);
 const bulkPreparationFailed = computed(() => deletionModal.value?.kind === 'bulk' && deletionModal.value.items.some(item => String(item.job.status).toUpperCase() === 'PREPARATION_FAILED'));
 function aggregateDeletionImpact(items: DeletionItem[]): DeletionImpact { return items.reduce<DeletionImpact>((sum, item) => ({ qsoCount: (sum.qsoCount || 0) + Number(item.job.impact?.qsoCount || 0), activationCount: (sum.activationCount || 0) + Number(item.job.impact?.activationCount || 0), awardCount: (sum.awardCount || 0) + Number(item.job.impact?.awardCount || 0) }), {}); }
 async function createDeletionJob(id: string, idempotencyKey?: string): Promise<DeletionJob> { return myotaClient.createGeodataEntityDeletionJob<DeletionJob>({ entityId: id, requestedBy: store.account?.id }, idempotencyKey); }
-const deletionPendingStatuses = new Set(['QUEUED', 'PROCESSING']);
 const deletionPollDelayMs = 1_500;
-const deletionPollTimeoutMs = 60_000;
 function delay(ms: number): Promise<void> { return new Promise(resolve => window.setTimeout(resolve, ms)); }
 async function refreshSingleDeletionStatus(pending: Extract<PendingDeletion, { kind: 'single' }>): Promise<void> {
-  const deadline = Date.now() + deletionPollTimeoutMs;
-  while (deletionPendingStatuses.has(String(pending.job.status).toUpperCase()) && Date.now() < deadline) {
+  while (pendingDeletionStatuses.has(String(pending.job.status).toUpperCase())) {
     try {
       pending.job = { ...pending.job, ...await myotaClient.getGeodataEntityDeletionJob<DeletionJob>(pending.job.id) };
       pending.job.error = String(pending.job.status).toUpperCase() === 'FAILED' ? pending.job.error || 'Deletion job failed.' : undefined;
     } catch (cause) {
       pending.job.error = cause instanceof Error ? cause.message : String(cause);
-      return;
     }
-    if (deletionPendingStatuses.has(String(pending.job.status).toUpperCase())) await delay(deletionPollDelayMs);
+    if (pendingDeletionStatuses.has(String(pending.job.status).toUpperCase())) await delay(deletionPollDelayMs);
   }
 }
 async function refreshBulkDeletionStatuses(pending: Extract<PendingDeletion, { kind: 'bulk' }>): Promise<void> {
-  const deadline = Date.now() + deletionPollTimeoutMs;
-  while (pending.items.some(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase())) && Date.now() < deadline) {
-    const activeItems = pending.items.filter(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase()));
-    const results = await Promise.allSettled(activeItems.map(item => myotaClient.getGeodataEntityDeletionJob<DeletionJob>(item.job.id)));
-    const completedIds = new Set<string>();
-    results.forEach((result, index) => {
-      const item = activeItems[index];
-      if (result.status === 'fulfilled') {
-        item.job = { ...item.job, ...result.value };
-        item.error = result.value.status === 'FAILED' ? result.value.error || 'Deletion job failed.' : undefined;
-        if (String(result.value.status).toUpperCase() === 'COMPLETED') completedIds.add(item.job.id);
-      } else {
-        item.error = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      }
-    });
-    if (completedIds.size) {
-      pending.items = pending.items.filter(item => !completedIds.has(item.job.id));
-      pending.completedCount += completedIds.size;
-    }
-    pending.impact = aggregateDeletionImpact(pending.items);
-    if (pending.items.some(item => String(item.job.status).toUpperCase() === 'FAILED')) return;
-    if (pending.items.some(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase()))) await delay(deletionPollDelayMs);
-  }
+  const completedBeforePoll = pending.completedCount;
+  await pollDeletionJobs({
+    items: pending.items,
+    jobFor: item => item.job,
+    refresh: jobId => myotaClient.getGeodataEntityDeletionJob<DeletionJob>(jobId),
+    update: (item, job) => {
+      item.job = { ...item.job, ...job };
+      item.error = String(job.status).toUpperCase() === 'FAILED'
+        ? job.error || 'Deletion job failed.'
+        : undefined;
+    },
+    onError: (item, cause) => {
+      item.error = cause instanceof Error ? cause.message : String(cause);
+    },
+    pause: () => delay(deletionPollDelayMs),
+  });
+  const completedIds = new Set(
+    pending.items
+      .filter(item => String(item.job.status).toUpperCase() === 'COMPLETED')
+      .map(item => item.job.id),
+  );
+  pending.items = pending.items.filter(item => !completedIds.has(item.job.id));
+  pending.completedCount = completedBeforePoll + completedIds.size;
+  pending.impact = aggregateDeletionImpact(pending.items);
 }
 async function prepareDelete(id: string): Promise<void> { const entity = selected.value?.id === id ? selected.value : entities.value.find(item => item.id === id); if (!entity || !isGlobalAdmin.value) return; try { deletionModal.value = { kind: 'single', entity, job: await createDeletionJob(id) }; } catch (e) { setError(e); } }
 function cancelDelete(): void {
@@ -123,12 +121,12 @@ async function confirmDelete(): Promise<void> {
   deleting.value = true;
   try {
     if (pending.kind === 'single') {
-      if (!deletionPendingStatuses.has(String(pending.job.status).toUpperCase())) {
+      if (!pendingDeletionStatuses.has(String(pending.job.status).toUpperCase())) {
         try {
           pending.job = { ...pending.job, ...await myotaClient.confirmGeodataEntityDeletionJob<DeletionJob>(pending.job.id, { confirmation: 'DELETE', deletedBy: store.account?.id }) };
         } catch (cause) {
           const current = await myotaClient.getGeodataEntityDeletionJob<DeletionJob>(pending.job.id);
-          if (!deletionPendingStatuses.has(String(current.status).toUpperCase()) && String(current.status).toUpperCase() !== 'COMPLETED') throw cause;
+          if (!pendingDeletionStatuses.has(String(current.status).toUpperCase()) && String(current.status).toUpperCase() !== 'COMPLETED') throw cause;
           pending.job = { ...pending.job, ...current };
         }
       }
@@ -156,7 +154,7 @@ async function confirmDelete(): Promise<void> {
             // A timeout can happen after the server has durably queued the job.
             // Read it back before treating the confirmation as failed.
             const current = await myotaClient.getGeodataEntityDeletionJob<DeletionJob>(item.job.id);
-            if (!deletionPendingStatuses.has(String(current.status).toUpperCase()) && String(current.status).toUpperCase() !== 'COMPLETED') throw cause;
+            if (!pendingDeletionStatuses.has(String(current.status).toUpperCase()) && String(current.status).toUpperCase() !== 'COMPLETED') throw cause;
             item.job = { ...item.job, ...current };
           }
         }
@@ -172,14 +170,31 @@ async function confirmDelete(): Promise<void> {
       await refreshBulkDeletionStatuses(pending);
       selectedIds.value = selectedIds.value.filter(id => pending.items.some(item => item.entity.id === id));
       await load();
-      if (pending.items.length) {
-        const completed = pending.completedCount;
-        const failed = pending.items.filter(item => String(item.job.status).toUpperCase() === 'FAILED').length;
-        message.value = `${completed} of ${pending.totalCount} entities deleted.${failed ? ` ${failed} deletion job(s) failed; review the details and retry.` : ` ${pending.items.length} job(s) are still processing; check status again shortly.`}`;
+      const awaitingConfirmation = pending.items.some(item =>
+        String(item.job.status).toUpperCase() === 'AWAITING_CONFIRMATION',
+      );
+      const failedItems = pending.items.filter(item =>
+        String(item.job.status).toUpperCase() === 'FAILED',
+      );
+      if (awaitingConfirmation) {
+        message.value = `${pending.completedCount} of ${pending.totalCount} entities deleted. Some jobs still need confirmation; review and confirm again.`;
         error.value = pending.items.find(item => item.error)?.error || '';
         return;
       }
-      message.value = `${pending.totalCount} entities were permanently deleted; linked QSOs were removed and award recalculation was queued.`;
+      message.value = `${pending.completedCount} of ${pending.totalCount} entities were permanently deleted.`;
+      if (failedItems.length) {
+        error.value = failedItems.map(item =>
+          `${item.entity.name}: ${item.error || item.job.error || 'Deletion failed.'}`,
+        ).join(' · ');
+      } else {
+        message.value += ' Linked QSOs were removed and award recalculation was queued.';
+        error.value = '';
+      }
+      deletionModal.value = null;
+      selected.value = null;
+      selectedIds.value = [];
+      await load();
+      return;
     }
     deletionModal.value = null;
     selected.value = null;
@@ -280,7 +295,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
   <div v-if="message" class="notice" role="status">{{ message }}</div><div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict && selected" class="secondary" @click="reloadConflictedEntity">Reload selected entity</button></div>
   <article class="panel filter-panel"><div class="top-controls"><label>Programme<select v-model="filters.programme"><option value="">All programmes, including unassigned</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label></div><div class="geo-filter-grid"><label>Entity type<select v-model="filters.entityType"><option value="">All types</option><option v-for="category in categories" :key="category.code" :value="category.code">{{ category.label || category.code }}</option></select></label><label>Continent<select v-model="filters.continent" :disabled="locationLoading"><option value="">All continents</option><option v-for="item in locationOptions" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Country<select v-model="filters.country" :disabled="locationLoading || !locationCountries().length"><option value="">All countries</option><option v-for="item in locationCountries()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Region / subdivision<select v-model="filters.region" :disabled="locationLoading || !locationRegions().length"><option value="">All regions / subdivisions</option><option v-for="item in locationRegions()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Province<select v-model="filters.province" :disabled="locationLoading || !locationProvinces().length"><option value="">All provinces</option><option v-for="item in locationProvinces()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>City / municipality<select v-model="filters.city" :disabled="locationLoading || !locationCities().length"><option value="">All cities / municipalities</option><option v-for="item in locationCities()" :key="item.name" :value="item.name">{{ item.name }}</option></select></label></div><div class="status-filters"><span>Status:</span><label v-for="status in statuses" :key="status"><input type="checkbox" :checked="filters.status.includes(status)" @change="toggleStatus(status)">{{ status }}</label></div></article>
   <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" required></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
-  <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="10">10</option><option :value="25">25</option><option :value="50">50</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
+  <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
   <article class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :editable-id="isManagement ? editingId : undefined" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @geometry-change="onGeometryChange" @draw-created="onDrawCreated"></LeafletMap><div v-if="isManagement && selected" class="map-actions"><button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry</button><button v-if="editingId" class="secondary" @click="stopGeometryEdit">Exit edit mode</button></div></article>
   <article v-if="selected" id="entity-editor" class="panel editor-panel"><div class="panel-heading"><div><p class="eyebrow">{{ isManagement ? 'ENTITY MANAGEMENT' : 'REVIEW DECISION' }}</p><h2>{{ selected.name }}</h2><small class="muted">{{ selected.id }}</small></div><span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span></div><section class="form-section source-comparison"><div class="section-heading"><div><h3>Source comparison</h3><p class="field-help">The imported source snapshot remains immutable. Compare it with the current platform geometry before editing or recording a review decision.</p></div></div><div class="compare-grid"><div><small class="muted">Source snapshot</small><pre class="data-preview">{{ sourceSnapshot(selected) }}</pre></div><div><small class="muted">Current platform geometry</small><pre class="data-preview">{{ JSON.stringify(selected.geometry || {}, null, 2) }}</pre></div></div></section><div class="editor-grid"><section v-if="isManagement" class="form-section"><h3>Entity name</h3><p class="field-help">Name changes are audited and do not alter the original source.</p><input v-model="editName"><textarea v-model="editNote" placeholder="Explain this name change"></textarea><button class="primary" @click="saveName">Save name</button></section><section v-if="isManagement" class="form-section"><h3>Entity categories</h3><p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input v-model="editTypes" type="checkbox" :value="category.code">{{ category.label || category.code }}</label></div><button class="secondary" @click="saveCategories">Save categories</button></section><section class="form-section gis-admin-section"><h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3><p v-if="isManagement" class="field-help">Global and GIS administrators can edit geometry explicitly. Point, LineString, MultiLineString, Polygon and MultiPolygon are supported. Use the map edit button above for vertex editing, or save a validated GeoJSON geometry below.</p><template v-if="isManagement"><label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label><textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea><textarea v-model="geometryNote" placeholder="Geometry change note"></textarea><button class="primary" @click="saveGeometry">Save geometry</button></template><template v-else><label>Status<select v-model="reviewStatus"><option v-for="status in selectedStatusOptions" :key="status" :value="status">{{ status }}</option></select></label><textarea v-model="editNote" placeholder="Review note / decision evidence"></textarea><button class="primary" @click="saveStatus(reviewStatus)">Save review decision</button></template></section></div><section class="form-section"><div class="section-heading"><div><h3>Location metadata</h3><p class="field-help">Reverse-geocoded values are automatic unless a field is explicitly marked as a manual override. Provider codes are read-only.</p></div><button v-if="isManagement" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button></div><div v-if="!editingLocation" class="info-grid"><div><span>Continent</span><strong>{{ locationValue(selected, 'continent') || '—' }}</strong></div><div><span>Country</span><strong>{{ locationValue(selected, 'country') || '—' }}</strong></div><div><span>Region</span><strong>{{ locationValue(selected, 'region') || '—' }}</strong></div><div><span>Province</span><strong>{{ locationValue(selected, 'province') || '—' }}</strong></div><div><span>County</span><strong>{{ locationValue(selected, 'county') || '—' }}</strong></div><div><span>City / municipality</span><strong>{{ locationValue(selected, 'city') || locationValue(selected, 'municipality') || '—' }}</strong></div></div><div v-else class="form-grid location-editor-grid"><label v-for="field in ['continent','country','region','province']" :key="field">{{ field === 'region' ? 'Region / first subdivision' : field[0].toUpperCase() + field.slice(1) }}<input v-model="locationForm[field]" list="location-options" @change="refreshLocationCodes(field)"><small class="field-help">Provider-derived name; choose a valid value.</small></label><datalist id="location-options"><option v-for="item in locationValues('country')" :key="item.code || item.name" :value="item.name">{{ item.code }}</option></datalist><label>Continent code<input v-model="locationForm.continentCode" readonly></label><label>Country code<input v-model="locationForm.countryCode" readonly></label><label>Subdivision code<input v-model="locationForm.subdivisionCode" readonly></label><label>Province code<input v-model="locationForm.provinceCode" readonly></label><label>County / equivalent<input v-model="locationForm.county"></label><label>City<input v-model="locationForm.city"></label><label>Municipality<input v-model="locationForm.municipality"></label><label>Locality<input v-model="locationForm.locality"></label><fieldset class="wide"><legend>Manual overrides</legend><div class="checkbox-grid"><label v-for="field in ['continent','country','region','province','county','city','municipality','locality']" :key="field"><input v-model="locationManual" type="checkbox" :value="field">Keep {{ field }} manual</label></div></fieldset><div class="form-actions wide"><button class="primary" @click="saveLocation">Save location</button><button class="secondary" @click="editingLocation = false">Cancel</button></div></div></section><section v-if="isManagement" class="form-section"><h3>Audit history</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div><button v-if="isGlobalAdmin" class="danger" @click="deleteEntity(selected.id)">Permanently delete entity</button></section><section v-else class="form-section"><h3>Review audit context</h3><div class="audit-list"><div v-for="(item, index) in auditEntries()" :key="`${item.action || 'event'}-${item.occurredAt || item.editedAt || index}`" class="audit-row"><strong>{{ item.action || 'AUDIT_EVENT' }}</strong><span>{{ item.occurredAt || item.editedAt || 'Time unavailable' }}</span><small>{{ item.note || item.reviewerId || item.editorId || '' }}</small></div><p v-if="!auditEntries().length" class="muted">No audit entries available.</p></div></section></article>
   <div v-if="deletionModal" class="modal-backdrop" role="presentation" @click.self="cancelDelete">
@@ -309,7 +324,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <button class="secondary" type="button" @click="cancelDelete">Cancel</button>
         <button v-if="deletionModal.kind === 'bulk' && bulkPreparationFailed" class="secondary" type="button" :disabled="preparingBulkDelete" @click="retryBulkDeletionPreparation">{{ preparingBulkDelete ? 'Retrying preparation…' : 'Retry failed preparation' }}</button>
         <button class="danger" type="button" :disabled="deleting || (deletionModal.kind === 'bulk' && (preparingBulkDelete || bulkPreparationFailed || !deletionModal.items.length)) || (deletionModal.kind === 'single' && String(deletionModal.job.status).toUpperCase() === 'FAILED')" @click="confirmDelete">
-          {{ deleting ? 'Processing deletion jobs…' : deletionModal.kind === 'single' ? deletionPendingStatuses.has(String(deletionModal.job.status).toUpperCase()) ? 'Check deletion status' : String(deletionModal.job.status).toUpperCase() === 'FAILED' ? 'Deletion failed' : 'Permanently delete entity' : preparingBulkDelete ? 'Preparing deletion details…' : bulkPreparationFailed ? 'Resolve preparation errors first' : deletionModal.items.some(item => deletionPendingStatuses.has(String(item.job.status).toUpperCase())) ? 'Check deletion status' : `Permanently delete ${deletionModal.items.length} entities` }}
+          {{ deleting ? 'Processing deletion jobs…' : deletionModal.kind === 'single' ? pendingDeletionStatuses.has(String(deletionModal.job.status).toUpperCase()) ? 'Check deletion status' : String(deletionModal.job.status).toUpperCase() === 'FAILED' ? 'Deletion failed' : 'Permanently delete entity' : preparingBulkDelete ? 'Preparing deletion details…' : bulkPreparationFailed ? 'Resolve preparation errors first' : deletionModal.items.some(item => pendingDeletionStatuses.has(String(item.job.status).toUpperCase())) ? 'Check deletion status' : `Permanently delete ${deletionModal.items.length} entities` }}
         </button>
       </div>
     </article>

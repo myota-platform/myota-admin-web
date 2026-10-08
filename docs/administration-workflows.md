@@ -12,9 +12,9 @@ refreshes the queue through the geodata API with the current `minLon`,
 area are not displayed.
 
 Each paged result has a selection checkbox. **Select all on this page** selects
-only the currently displayed page, and changing filters or the page size clears
-the selection. The bulk approval action sends an audited `APPROVED` status
-transition for each eligible entity; already approved entities are skipped and
+only the currently displayed page. The page-size selector offers 25, 50, or 100
+entities, and changing filters or the page size clears the selection. The bulk
+approval action sends an audited `APPROVED` status transition for each eligible entity; already approved entities are skipped and
 retired entities remain protected by the lifecycle rule. Global administrators
 also have **Delete entities permanently**. Before deletion, the UI gathers the
 impact for every selected entity and shows the same stern warning used by the
@@ -26,11 +26,12 @@ Creating these confirmation jobs does not publish deletion events; events are
 queued only after the administrator presses the final confirmation button.
 Deletion cascades through activity data, queues award
 recalculation, removes the geodata record and audit record, and cannot be
-undone. Single and bulk deletion both poll their durable job until completion,
-failure, or a bounded status-check timeout. The dialog remains closable while
-that background work continues; closing it does not cancel a confirmed delete.
-Deletion requests and status reads have a bounded client timeout so an
-unresponsive API cannot trap the administrator in a disabled dialog.
+undone. Single and bulk deletion both poll their durable job until completion
+or failure. Bulk status polling continues through transient read errors until all
+jobs reach a terminal state, then closes the dialog and reports any failures.
+The dialog remains closable while that background work continues; closing it
+does not cancel a confirmed delete. Each request has a bounded client timeout,
+and a timed-out status read is retried rather than ending the polling cycle.
 
 The **Entity status** editor allows an approver to set the lifecycle status directly from the inspector. Status changes are recorded in the audit history and emit a status-change event. An `APPROVED` entity can only move to `RETIRED`; a retired entity cannot be reactivated. This protects historical QSOs from being associated with a later-invalidated entity.
 
