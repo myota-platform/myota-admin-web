@@ -53,8 +53,11 @@ the admin web should not absorb those participant-only responsibilities.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
 - Authenticated observability access at `/observability/`; the Admin UI refreshes
   its access token before navigating, and its reverse proxy validates that
-  token on every Grafana request. Grafana is read-only for authenticated users;
+  token on every Grafana request. GLOBAL_OPERATOR/GLOBAL_ADMIN have Grafana
+  Editor access; authorized observability readers have Viewer access.
   Prometheus, Alertmanager and Tempo remain private cluster services.
+- SeaweedFS storage at `/object-storage`: real health, bucket/size gauges,
+  filesystem capacity, S3 counters and paged history through operations APIs.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.
@@ -71,9 +74,15 @@ After signing in, choose **Platform health → Observability** in the sidebar.
 Grafana is served from `/observability/` on the same host. The UI refreshes its
 MyOTA access token before navigation and mirrors the short-lived token into a
 SameSite=Strict cookie scoped only to that path so Nginx can validate access
-against the identity API. Sign-out clears both the browser token and the helper
-cookie. Grafana maps authenticated sessions to the read-only Viewer role;
+through the operations session API, which calls the live identity API.
+Sign-out clears both the browser token and the helper cookie. Grafana uses a
+distinct stable account ID per user. Current GLOBAL_OPERATOR/GLOBAL_ADMIN
+roles map to Editor and can create dashboards and panels; other observability
+readers map to Viewer. Incoming identity/role headers are overwritten by Nginx.
 Prometheus and Alertmanager are not exposed as separate public services.
+All provisioned dashboards default to the last 30 minutes and refresh every
+30 seconds. Editors can save UI changes, but later source provisioning updates
+overwrite those changes; use Save as copy for independently maintained dashboards.
 The Nginx proxy refreshes its gateway and Grafana service DNS lookups every ten
 seconds, so it follows new Kubernetes ClusterIPs without requiring an admin-web
 restart.
