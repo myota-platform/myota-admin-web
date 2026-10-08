@@ -21,7 +21,11 @@ impact for every selected entity and shows the same stern warning used by the
 single-entity action, including the number of valid QSOs and activations that
 will be affected. Deletion cascades through activity data, queues award
 recalculation, removes the geodata record and audit record, and cannot be
-undone.
+undone. Single and bulk deletion both poll their durable job until completion,
+failure, or a bounded status-check timeout. The dialog remains closable while
+that background work continues; closing it does not cancel a confirmed delete.
+Deletion requests and status reads have a bounded client timeout so an
+unresponsive API cannot trap the administrator in a disabled dialog.
 
 The **Entity status** editor allows an approver to set the lifecycle status directly from the inspector. Status changes are recorded in the audit history and emit a status-change event. An `APPROVED` entity can only move to `RETIRED`; a retired entity cannot be reactivated. This protects historical QSOs from being associated with a later-invalidated entity.
 

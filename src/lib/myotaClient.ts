@@ -6,6 +6,27 @@
  */
 import { apiRequest } from './api';
 
+const DELETION_REQUEST_TIMEOUT_MS = 15_000;
+
+function deletionRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    DELETION_REQUEST_TIMEOUT_MS,
+  );
+  return apiRequest<T>(path, { ...options, signal: controller.signal }).finally(
+    () => window.clearTimeout(timeout),
+  );
+}
+
+function deletionWrite<T>(path: string, body: unknown): Promise<T> {
+  return deletionRequest<T>(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+  });
+}
+
 function write<T>(path: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body: unknown = {}, version?: number): Promise<T> {
   return apiRequest<T>(path, {
     method,
@@ -28,8 +49,8 @@ export const myotaClient = {
   putGeodataEntityCategories<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/categories`, 'PUT', body, version); },
   postGeodataEntityReview<T = unknown>(id: string, body: unknown, version?: number) { return write<T>(`/v1/geodata/entities/${encodeURIComponent(id)}/reviews`, 'POST', body, version); },
   postGeodataProposal<T = unknown>(body: unknown) { return write<T>('/v1/geodata/proposals', 'POST', body); },
-  createGeodataEntityDeletionJob<T = unknown>(body: unknown) { return write<T>('/v1/geodata/entity-deletion-jobs', 'POST', body); },
-  getGeodataEntityDeletionJob<T = unknown>(jobId: string) { return apiRequest<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}`); },
-  confirmGeodataEntityDeletionJob<T = unknown>(jobId: string, body: unknown) { return write<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}/confirm`, 'POST', body); },
+  createGeodataEntityDeletionJob<T = unknown>(body: unknown) { return deletionWrite<T>('/v1/geodata/entity-deletion-jobs', body); },
+  getGeodataEntityDeletionJob<T = unknown>(jobId: string) { return deletionRequest<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}`); },
+  confirmGeodataEntityDeletionJob<T = unknown>(jobId: string, body: unknown) { return deletionWrite<T>(`/v1/geodata/entity-deletion-jobs/${encodeURIComponent(jobId)}/confirm`, body); },
   patchAward<T = unknown>(id: string, body: unknown) { return write<T>(`/v1/awards/${encodeURIComponent(id)}`, 'PATCH', body); },
 };
