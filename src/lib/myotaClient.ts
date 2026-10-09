@@ -40,6 +40,9 @@ function write<T>(path: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', bod
 }
 
 export const myotaClient = {
+  getAwardAssetContent<T = unknown>(id: string) { return apiRequest<T>(`/v1/awards/assets/${encodeURIComponent(id)}/content`); },
+  putAwardAssetContent<T = unknown>(id: string, file: File) { return apiRequest<T>(`/v1/awards/assets/${encodeURIComponent(id)}/content`, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file }); },
+  createAwardPreview<T = unknown>(body: unknown) { return write<T>('/v1/awards/previews', 'POST', body); },
   patchProgramme<T = unknown>(slug: string, body: unknown) { return write<T>(`/v1/programmes/${encodeURIComponent(slug)}`, 'PATCH', body); },
   assignProgrammeEntityCategory<T = unknown>(slug: string, code: string) { return write<T>(`/v1/programmes/${encodeURIComponent(slug)}/entity-types/${encodeURIComponent(code)}`, 'PUT'); },
   unassignProgrammeEntityCategory<T = unknown>(slug: string, code: string) { return write<T>(`/v1/programmes/${encodeURIComponent(slug)}/entity-types/${encodeURIComponent(code)}`, 'DELETE'); },

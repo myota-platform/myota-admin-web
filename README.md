@@ -97,6 +97,13 @@ restart.
 
 ## Vue application
 
+Programme editing loads the full detail record and preserves programme-owned
+metadata. Award design includes the six default fields, named PNG/JPEG uploads
+through the activity API, background/signature selectors, and transient mock-data
+PDF previews in a separate window. See the
+[editor/design guide](https://github.com/myota-platform/myota-docs/blob/main/docs/programme-and-award-design.md).
+Browser regression coverage includes existing-record saves and artwork uploads.
+
 The current application is the complete Vue 3 +
 TypeScript + Vite administration application. All administration routes use
 typed Vue components; Pinia owns the small amount of cross-page client state,
