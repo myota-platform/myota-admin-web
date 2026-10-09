@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test.use({ timezoneId: "Europe/Madrid" });
+
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
 
@@ -65,6 +67,7 @@ async function fixtures(page: Page) {
     backgroundAsset: assets[0],
     printSpec: { page: "LETTER", orientation: "LANDSCAPE", dpi: 150 },
     template: { elements, layoutVersion: 2 },
+    effectiveFrom: "2026-10-09T12:45:30Z",
     managerName: "Original manager",
     signatureAssetId: "signature-1",
   };
@@ -204,6 +207,7 @@ test("award defaults, existing layout, editable fields and custom text survive s
     .click();
   await expect(page.getByRole("status")).toContainText("Award draft saved");
   expect(state.saved[0].template.layoutVersion).toBe(2);
+  expect(state.saved[0].effectiveFrom).toBe("2026-10-09T12:45:30Z");
   expect(state.saved[0].template.elements[0].x).toBe(0.1);
   expect(state.saved[0].template.elements[0].style.align).toBe("center");
   expect(state.saved[0].template.elements.at(-1).label).toBe(
@@ -222,13 +226,11 @@ test("named PNG and JPG uploads populate background/signature selectors", async 
 }) => {
   const state = await fixtures(page);
   await page.goto("/awards");
-  const panel = page
-    .locator("article")
-    .filter({
-      has: page.getByRole("heading", {
-        name: "Upload signature or background",
-      }),
-    });
+  const panel = page.locator("article").filter({
+    has: page.getByRole("heading", {
+      name: "Upload signature or background",
+    }),
+  });
   const jpeg = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 4;
@@ -242,13 +244,11 @@ test("named PNG and JPG uploads populate background/signature selectors", async 
   ]) {
     await panel.getByLabel("Asset type").selectOption(kind);
     await panel.getByLabel("Display name").fill(`Named ${kind.toLowerCase()}`);
-    await panel
-      .getByLabel("Image file")
-      .setInputFiles({
-        name: kind === "BACKGROUND" ? "image.png" : "image.jpg",
-        mimeType: type,
-        buffer: Buffer.from(content, "base64"),
-      });
+    await panel.getByLabel("Image file").setInputFiles({
+      name: kind === "BACKGROUND" ? "image.png" : "image.jpg",
+      mimeType: type,
+      buffer: Buffer.from(content, "base64"),
+    });
     await panel
       .getByRole("button", { name: "Upload image asset", exact: true })
       .click();

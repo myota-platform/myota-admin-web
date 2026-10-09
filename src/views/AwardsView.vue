@@ -170,6 +170,14 @@ function defaultElements(): TemplateElement[] {
     },
   ];
 }
+function localDateTime(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+}
 function edit(item: Award | null): void {
   selected.value = item;
   const background: any = item?.backgroundAsset || {};
@@ -198,9 +206,7 @@ function edit(item: Award | null): void {
     description: item?.description || "",
     category: item?.category || "HUNTER",
     achievementMetric: item?.achievementMetric || "QSO_COUNT",
-    effectiveFrom: item?.effectiveFrom
-      ? String(item.effectiveFrom).slice(0, 16)
-      : "",
+    effectiveFrom: localDateTime(item?.effectiveFrom),
     condition: JSON.stringify(
       item?.condition || {
         kind: "AND",
@@ -465,7 +471,10 @@ async function save(): Promise<void> {
           signatureAssetId: form.signatureAssetId || null,
           managerName: form.managerName,
           effectiveFrom: form.effectiveFrom
-            ? new Date(form.effectiveFrom).toISOString()
+            ? form.effectiveFrom ===
+              localDateTime(selected.value?.effectiveFrom)
+              ? selected.value?.effectiveFrom
+              : new Date(form.effectiveFrom).toISOString()
             : null,
         }),
         headers: { "Idempotency-Key": crypto.randomUUID() },
@@ -491,7 +500,7 @@ async function action(actionName: string, decision?: string): Promise<void> {
         : actionName === "publish"
           ? {
               status: "PUBLISHED",
-              effectiveFrom: form.effectiveFrom,
+              effectiveFrom: new Date(form.effectiveFrom).toISOString(),
               publisherId: store.account?.id,
             }
           : actionName === "retire"
