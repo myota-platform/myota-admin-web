@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from "../components/PageHeader.vue";
 import { utcDisplay } from "../lib/utc";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { apiRequest } from '../lib/api';
@@ -48,10 +49,7 @@ onBeforeUnmount(() => { disposed = true; controller.abort(); clearInterval(poll)
 </script>
 
 <template>
-  <section class="page-heading">
-    <div><p class="eyebrow">PLATFORM HEALTH</p><h1>NATS / JetStream</h1><p class="muted">Real broker state, durable consumers and recorded queue history. This page never consumes or deletes messages.</p></div>
-    <button class="secondary" :disabled="refreshing" @click="refresh">{{ refreshing ? 'Refreshing…' : 'Refresh status' }}</button>
-  </section>
+<PageHeader :refresh="refresh" :busy="refreshing"></PageHeader>
   <p v-if="error" class="error-card" role="alert">{{ error }}. Previously recorded data, if shown, is not a fresh broker check.</p>
   <section v-if="latest" class="panel">
     <div class="panel-heading"><div><h2>{{ latest.status }}</h2><p class="muted">Sampled {{ timestamp(latest.capturedAt) }} · every {{ latest.pollSeconds }} seconds · history retained {{ latest.historyRetentionDays }} days</p></div><span v-if="latest.stale" class="warning-pill">Stale sample</span></div>

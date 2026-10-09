@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import ProgrammeScope from "../components/ProgrammeScope.vue";
+import { hasAnyScope } from "../lib/adminAccess";
+import PageHeader from "../components/PageHeader.vue";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { apiRequest } from "../lib/api";
 import { myotaClient } from "../lib/myotaClient";
@@ -34,6 +37,9 @@ interface Award {
 }
 
 const store = useAppStore();
+const canManage = computed(() => hasAnyScope(store.account, "awards.admin"));
+const loading = ref(false);
+let loadGeneration = 0;
 const programme = ref(
   store.currentProgramme || store.programmes[0]?.slug || "",
 );
@@ -61,8 +67,11 @@ const selectedBackground = computed(() =>
 );
 const editable = computed(
   () =>
-    !selected.value ||
-    ["DRAFT", "CHANGES_REQUESTED"].includes(selected.value.status || "DRAFT"),
+    canManage.value &&
+    (!selected.value ||
+      ["DRAFT", "CHANGES_REQUESTED"].includes(
+        selected.value.status || "DRAFT",
+      )),
 );
 const assetFile = ref<File | null>(null);
 const dragState = ref<{ index: number; x: number; y: number } | null>(null);
@@ -322,6 +331,7 @@ watch(
   },
 );
 async function previewPdf(): Promise<void> {
+  if (!canManage.value || previewing.value) return;
   const popup = window.open("about:blank", "_blank");
   if (!popup) {
     error.value = "Allow pop-ups for MyOTA to open the PDF preview.";
@@ -397,6 +407,9 @@ function endDrag(): void {
 }
 async function load(selectedId?: string | Event): Promise<void> {
   const id = typeof selectedId === "string" ? selectedId : undefined;
+  const generation = ++loadGeneration;
+  loading.value = true;
+  error.value = "";
   try {
     const [awardData, assetData, requestData, issuanceData] = await Promise.all(
       [
@@ -410,6 +423,7 @@ async function load(selectedId?: string | Event): Promise<void> {
         apiRequest<{ items: any[] }>("/v1/awards/issuances?pageSize=100"),
       ],
     );
+    if (generation !== loadGeneration) return;
     items.value = awardData.items || [];
     assets.value = assetData.items || [];
     requests.value = requestData.items || [];
@@ -417,7 +431,9 @@ async function load(selectedId?: string | Event): Promise<void> {
     if (id)
       edit(await apiRequest<Award>(`/v1/awards/${encodeURIComponent(id)}`));
   } catch (cause) {
-    error.value = String(cause);
+    if (generation === loadGeneration) error.value = String(cause);
+  } finally {
+    if (generation === loadGeneration) loading.value = false;
   }
 }
 async function save(): Promise<void> {
@@ -481,7 +497,10 @@ async function save(): Promise<void> {
   }
 }
 async function action(actionName: string, decision?: string): Promise<void> {
-  if (!selected.value?.id) return;
+  if (!selected.value?.id || !canManage.value || saving.value) return;
+  saving.value = true;
+  error.value = "";
+  message.value = "";
   try {
     if (actionName === "publish" && !form.effectiveFrom)
       throw new Error("Choose an effective date before publishing.");
@@ -503,9 +522,12 @@ async function action(actionName: string, decision?: string): Promise<void> {
     await myotaClient.patchAward(selected.value.id, body);
     message.value = `Award ${actionName === "publish" ? "published" : `${actionName}ed`}.`;
     await load(selected.value.id);
-  } catch (error) {
-    message.value =
-      error instanceof Error ? error.message : "Award action failed.";
+  } catch (cause) {
+    message.value = "";
+    error.value =
+      cause instanceof Error ? cause.message : "Award action failed.";
+  } finally {
+    saving.value = false;
   }
 }
 function selectAssetFile(event: Event): void {
@@ -516,7 +538,7 @@ function selectAssetFile(event: Event): void {
   }
 }
 async function registerAsset(): Promise<void> {
-  if (!assetFile.value || uploading.value) return;
+  if (!canManage.value || !assetFile.value || uploading.value) return;
   uploading.value = true;
   error.value = "";
   try {
@@ -564,34 +586,27 @@ watch(programme, () => {
   edit(null);
   load();
 });
-onMounted(() => load());
+onMounted(() => {
+  store.currentProgramme = programme.value;
+  void load();
+});
 </script>
 
 <template>
-  <section class="page-heading">
-    <div>
-      <p class="eyebrow">ACTIVITY & CERTIFICATES</p>
-      <h1>Awards and certificates</h1>
-      <p class="muted">
-        Programme-owned hunter and activator awards with explicit publication
-        and print profiles.
-      </p>
-    </div>
-    <button class="primary" @click="edit(null)">New award draft</button>
-  </section>
-  <div class="toolbar">
-    <label class="toolbar-field"
-      >Programme<select v-model="programme">
-        <option
-          v-for="item in store.programmes"
-          :key="item.slug"
-          :value="item.slug"
-        >
-          {{ item.name }}
-        </option>
-      </select></label
-    ><button class="secondary" @click="() => load()">Refresh</button>
-  </div>
+  <PageHeader :refresh="() => load()" :busy="saving || uploading || loading"
+    ><button
+      v-if="canManage"
+      class="primary"
+      :disabled="saving || uploading || loading"
+      @click="edit(null)"
+    >
+      New award draft
+    </button></PageHeader
+  >
+  <ProgrammeScope
+    v-model="programme"
+    :disabled="loading || saving || uploading"
+  />
   <div v-if="message" class="notice" role="status">{{ message }}</div>
   <div v-if="error" class="error-card" role="alert">{{ error }}</div>
   <div class="split-layout">
@@ -626,30 +641,52 @@ onMounted(() => load());
       <div class="panel-heading">
         <h2>{{ selected ? selected.name : "New award draft" }}</h2>
       </div>
+      <p v-if="!editable" class="read-only-note">
+        This award is read-only. Only drafts can be changed by users with award
+        administration permission.
+      </p>
       <form class="form-grid" @submit.prevent="save">
-        <label>Code<input v-model="form.code" required /></label
-        ><label>Name<input v-model="form.name" required /></label
+        <label
+          >Code<input
+            v-model="form.code"
+            :readonly="!editable"
+            required /></label
         ><label
-          >Category<select v-model="form.category">
+          >Name<input
+            v-model="form.name"
+            :readonly="!editable"
+            required /></label
+        ><label
+          >Category<select v-model="form.category" :disabled="!editable">
             <option>HUNTER</option>
             <option>ACTIVATOR</option>
           </select></label
         ><label
-          >Achievement metric<select v-model="form.achievementMetric">
+          >Achievement metric<select
+            v-model="form.achievementMetric"
+            :disabled="!editable"
+          >
             <option>QSO_COUNT</option>
             <option>ACTIVATION_COUNT</option>
             <option>UNIQUE_CALLSIGNS</option>
             <option>UNIQUE_ENTITIES</option>
           </select></label
         ><label class="wide"
-          >Description<textarea v-model="form.description"></textarea></label
+          >Description<textarea
+            v-model="form.description"
+            :readonly="!editable"
+          ></textarea></label
         ><label
           >Effective from (UTC)<input
             v-model="form.effectiveFrom"
+            :disabled="
+              !canManage || (!editable && selected?.status !== 'APPROVED')
+            "
             type="datetime-local" /></label
         ><label
           >Background object key<select
             v-model="form.backgroundKey"
+            :disabled="!editable"
             @change="chooseBackground"
           >
             <option value="">No background / blank preview</option>
@@ -670,32 +707,40 @@ onMounted(() => load());
         ><label
           >Background width<input
             v-model.number="form.width"
+            :readonly="!editable"
             type="number"
             min="1" /></label
         ><label
           >Background height<input
             v-model.number="form.height"
+            :readonly="!editable"
             type="number"
             min="1" /></label
         ><label
-          >Page<select v-model="form.page">
+          >Page<select v-model="form.page" :disabled="!editable">
             <option>A4</option>
             <option>LETTER</option>
           </select></label
         ><label
-          >Orientation<select v-model="form.orientation">
+          >Orientation<select v-model="form.orientation" :disabled="!editable">
             <option>PORTRAIT</option>
             <option>LANDSCAPE</option>
           </select></label
         ><label
           >Resolution<input
             v-model.number="form.dpi"
+            :readonly="!editable"
             type="number"
             min="150" /></label
         ><label class="wide"
-          >Award manager name<input v-model="form.managerName" /></label
+          >Award manager name<input
+            v-model="form.managerName"
+            :readonly="!editable" /></label
         ><label class="wide"
-          >Manager signature<select v-model="form.signatureAssetId">
+          >Manager signature<select
+            v-model="form.signatureAssetId"
+            :disabled="!editable"
+          >
             <option value="">Mock signature / none selected</option>
             <option
               v-for="asset in signatures"
@@ -708,6 +753,7 @@ onMounted(() => load());
         ><label class="wide"
           >Condition JSON<textarea
             v-model="form.condition"
+            :readonly="!editable"
             class="code-editor"
           ></textarea
           ><small class="field-help"
@@ -716,6 +762,7 @@ onMounted(() => load());
         ><label class="wide"
           >Levels JSON<textarea
             v-model="form.levels"
+            :readonly="!editable"
             class="code-editor"
           ></textarea
           ><small class="field-help"
@@ -736,6 +783,7 @@ onMounted(() => load());
             "
             class="secondary"
             type="button"
+            :disabled="saving || !canManage"
             @click="action('submit')"
           >
             Submit for review</button
@@ -743,6 +791,7 @@ onMounted(() => load());
             v-if="selected?.status === 'UNDER_REVIEW'"
             class="approve"
             type="button"
+            :disabled="saving || !canManage"
             @click="action('review', 'APPROVED')"
           >
             Approve</button
@@ -750,6 +799,7 @@ onMounted(() => load());
             v-if="selected?.status === 'UNDER_REVIEW'"
             class="reject"
             type="button"
+            :disabled="saving || !canManage"
             @click="action('review', 'CHANGES_REQUESTED')"
           >
             Request changes</button
@@ -757,6 +807,7 @@ onMounted(() => load());
             v-if="selected?.status === 'APPROVED'"
             class="primary"
             type="button"
+            :disabled="saving || !canManage"
             @click="action('publish')"
           >
             Publish
@@ -788,7 +839,11 @@ onMounted(() => load());
           @click="restoreDefaults"
         >
           Restore default elements</button
-        ><button class="primary" :disabled="previewing" @click="previewPdf">
+        ><button
+          class="primary"
+          :disabled="previewing || !canManage"
+          @click="previewPdf"
+        >
           {{ previewing ? "Generating…" : "Generate preview PDF" }}
         </button>
       </div>
@@ -841,12 +896,14 @@ onMounted(() => load());
           <input
             v-if="element.kind === 'CUSTOM_TEXT'"
             v-model="element.label"
+            :readonly="!editable"
             aria-label="Custom text"
             maxlength="200"
           /><strong v-else>{{ element.label }}</strong
           ><label
             >X<input
               v-model.number="element.x"
+              :readonly="!editable"
               type="number"
               min="0"
               max="1"
@@ -854,6 +911,7 @@ onMounted(() => load());
           ><label
             >Y<input
               v-model.number="element.y"
+              :readonly="!editable"
               type="number"
               min="0"
               max="1"
@@ -861,6 +919,7 @@ onMounted(() => load());
           ><label
             >W<input
               v-model.number="element.width"
+              :readonly="!editable"
               type="number"
               min=".01"
               max="1"
@@ -868,6 +927,7 @@ onMounted(() => load());
           ><label
             >H<input
               v-model.number="element.height"
+              :readonly="!editable"
               type="number"
               min=".01"
               max="1"
@@ -942,7 +1002,7 @@ onMounted(() => load());
     <form class="form-grid" @submit.prevent="registerAsset">
       <fieldset
         class="form-grid wide award-upload-fields"
-        :disabled="uploading"
+        :disabled="uploading || !canManage"
       >
         <label
           >Asset type<select v-model="assetForm.kind">

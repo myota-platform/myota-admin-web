@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from "../components/PageHeader.vue";
 import { utcDisplay } from "../lib/utc";
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { apiRequest } from '../lib/api';
@@ -57,10 +58,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="page-heading">
-    <div><p class="eyebrow">PLATFORM HEALTH</p><h1>SeaweedFS storage</h1><p class="muted">Storage health, reported buckets, activity and recorded history.</p></div>
-    <div class="actions"><button class="secondary" @click="openDashboard">Open storage dashboard</button><button class="secondary" :disabled="refreshing" @click="refresh">{{ refreshing ? 'Refreshing…' : 'Refresh status' }}</button></div>
-  </section>
+<PageHeader :refresh="refresh" :busy="refreshing"><button class="secondary" @click="openDashboard">Open storage dashboard</button></PageHeader>
   <p v-if="error" class="error-card" role="alert">{{ error }}. Previously displayed data is not a fresh storage check.</p>
   <section v-if="latest" class="panel">
     <div class="panel-heading"><div><h2>{{ latest.status }}</h2><p class="muted">SeaweedFS {{ latest.version || 'version unavailable' }} · sampled {{ timestamp(latest.capturedAt) }} · every {{ latest.pollSeconds }} seconds · {{ latest.historyRetentionDays }} days of history</p></div><span v-if="latest.stale" class="warning-pill">Stale sample</span></div>

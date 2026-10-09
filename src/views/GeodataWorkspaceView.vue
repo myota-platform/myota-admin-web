@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import PageHeader from "../components/PageHeader.vue";
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { ApiError, apiRequest } from '../lib/api';
 import { myotaClient } from '../lib/myotaClient';
 import { pendingDeletionStatuses, pollDeletionJobs } from '../lib/deletionPolling';
+import { hasAnyScope, canAdministerLocation } from '../lib/adminAccess';
 import { useAppStore } from '../stores/app';
 import LeafletMap from '../components/LeafletMap.vue';
 import WorkspaceDialog from '../components/WorkspaceDialog.vue';
@@ -12,6 +14,9 @@ import type { EntityCategory, GeoEntity } from '../types';
 
 const props = defineProps<{ mode: 'review' | 'management' }>();
 const store = useAppStore();
+const canEdit = computed(() => hasAnyScope(store.account, 'geodata.review'));
+const canConvertGeometry = computed(() => hasAnyScope(store.account, 'geodata.geometry.manage') || store.account?.roles?.some(role => role.role === 'GIS_ADMIN'));
+const canEditLocation = computed(() => canAdministerLocation(store.account));
 interface AuditEntry { action?: string; occurredAt?: string; editedAt?: string; note?: string; reviewerId?: string; editorId?: string; [key: string]: unknown }
 interface AuditData { items?: AuditEntry[]; reviewHistory?: AuditEntry[]; geometryHistory?: AuditEntry[]; statusHistory?: AuditEntry[] }
 interface DeletionImpact { qsoCount?: number; activationCount?: number; awardCount?: number; }
@@ -559,7 +564,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
 </script>
 
 <template>
-  <section class="page-heading"><div><p class="eyebrow">GEODATA</p><h1>{{ title }}</h1><p class="muted">{{ isManagement ? 'Open any entity to edit it without leaving the catalogue. Your filters, page and bulk selection stay in place.' : 'Review candidate entities and make durable status decisions.' }}</p></div><div class="heading-actions"><button class="secondary" @click="load">Refresh</button><button class="primary" @click="creating = !creating">New Candidate</button></div></section>
+<PageHeader :refresh="() => load()" :busy="loading"><button class="primary" @click="creating = !creating">New Candidate</button></PageHeader>
   <div v-if="message" class="notice" role="status">{{ message }}</div><div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict && selected" class="secondary" @click="reloadConflictedEntity">Reload selected entity</button></div>
   <article class="panel filter-panel"><div class="top-controls"><label>Programme<select v-model="filters.programme"><option value="">All programmes, including unassigned</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label></div><div class="geo-filter-grid"><label>Entity type<select v-model="filters.entityType"><option value="">All types</option><option v-for="category in categories" :key="category.code" :value="category.code">{{ category.label || category.code }}</option></select></label><label>Continent<select v-model="filters.continent" :disabled="locationLoading"><option value="">All continents</option><option v-for="item in locationOptions" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Country<select v-model="filters.country" :disabled="locationLoading || !locationCountries().length"><option value="">All countries</option><option v-for="item in locationCountries()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Region / subdivision<select v-model="filters.region" :disabled="locationLoading || !locationRegions().length"><option value="">All regions / subdivisions</option><option v-for="item in locationRegions()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Province<select v-model="filters.province" :disabled="locationLoading || !locationProvinces().length"><option value="">All provinces</option><option v-for="item in locationProvinces()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>City / municipality<select v-model="filters.city" :disabled="locationLoading || !locationCities().length"><option value="">All cities / municipalities</option><option v-for="item in locationCities()" :key="item.name" :value="item.name">{{ item.name }}</option></select></label></div><div class="status-filters"><span>Status:</span><label v-for="status in statuses" :key="status"><input type="checkbox" :checked="filters.status.includes(status)" @change="toggleStatus(status)">{{ status }}</label></div></article>
   <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" required></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
@@ -610,21 +615,22 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
       </div>
     </section>
     <fieldset :disabled="editorSaving" class="editor-fields">
+    <p v-if="isManagement && !canEdit" class="read-only-note">Name, category and geometry edits require geodata review permission. Other actions depend on their own permissions.</p>
     <div class="editor-grid" :class="{ 'management-details-grid': isManagement }">
       <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity name</h3>
         <p class="field-help">Name changes are audited and do not alter the original source.</p>
-        <label>Display name<input v-model="editName"></label>
+        <label>Display name<input v-model="editName" :readonly="!canEdit"></label>
         <label>Name change note<textarea v-model="editNote" placeholder="Explain this name change"></textarea></label>
-        <button class="primary" :disabled="!editName.trim()" @click="saveName">Save name</button>
+        <button class="primary" :disabled="!canEdit || !editName.trim()" @click="saveName">Save name</button>
       </section>
       <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity categories</h3>
         <p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p>
         <div class="checkbox-grid">
-          <label v-for="category in categories" :key="category.code"><input v-model="editTypes" type="checkbox" :value="category.code">{{ category.label || category.code }}</label>
+          <label v-for="category in categories" :key="category.code"><input v-model="editTypes" :disabled="!canEdit" type="checkbox" :value="category.code">{{ category.label || category.code }}</label>
         </div>
-        <button class="secondary" @click="saveCategories">Save categories</button>
+        <button class="secondary" :disabled="!canEdit" @click="saveCategories">Save categories</button>
       </section>
       <section v-show="!isManagement || editorTab === 'geometry'" class="form-section gis-admin-section" :class="{ wide: isManagement }">
         <h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3>
@@ -634,7 +640,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
             :editable-id="editingId" :drawing="geometryDrawing" :drawing-mode="drawingMode"
             :show-clusters="false" height="min(42vh, 440px)" @geometry-change="onGeometryChange" @draw-created="onGeometryDrawCreated" />
           <div class="toolbar geometry-tools">
-            <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry vertices</button>
+            <button class="secondary" :disabled="!canEdit || selected.status === 'RETIRED'" @click="startGeometryEdit">Edit geometry vertices</button>
             <button v-if="editingId || geometryDrawing" class="secondary" @click="stopGeometryEdit">Stop editing / drawing</button>
             <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="drawReplacement('POINT')">Replace with point</button>
             <button class="secondary" :disabled="selected.status === 'RETIRED'" @click="drawReplacement('WAY')">Draw replacement trail</button>
@@ -642,8 +648,8 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
           </div>
           <p v-if="selected.status === 'RETIRED'" class="notice">Retired entity geometry is read-only.</p>
           <details class="geometry-json"><summary>Advanced GeoJSON / geometry type</summary>
-          <label>Geometry type<select v-model="geometryType"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label>
-          <textarea v-model="geometryJson" class="code-editor" placeholder="GeoJSON geometry"></textarea>
+          <label>Geometry type<select v-model="geometryType" :disabled="!canConvertGeometry"><option>Point</option><option>LineString</option><option>MultiLineString</option><option>Polygon</option><option>MultiPolygon</option></select></label>
+          <textarea v-model="geometryJson" :readonly="!canEdit || selected.status === 'RETIRED'" class="code-editor" placeholder="GeoJSON geometry"></textarea>
           <p class="field-help">Coordinates must match the chosen type. The API validates the geometry before storing it.</p>
           </details>
           <label>Geometry change note<textarea v-model="geometryNote" placeholder="Explain why the geometry was adjusted"></textarea></label>
@@ -663,10 +669,10 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
           <p class="field-help">Reverse-geocoded values are automatic unless a field is explicitly marked as a manual override. Provider codes are read-only.</p>
         </div>
         <div class="toolbar">
-          <button v-if="isManagement && missingLocationFields(selected).length" class="secondary" :disabled="locationEnrichmentSubmitting || selected.locationEnrichmentStatus === 'QUEUED'" @click="requestLocationEnrichment">
+          <button v-if="isManagement && canEditLocation && missingLocationFields(selected).length" class="secondary" :disabled="locationEnrichmentSubmitting || selected.locationEnrichmentStatus === 'QUEUED'" @click="requestLocationEnrichment">
             {{ locationEnrichmentSubmitting || selected.locationEnrichmentStatus === 'QUEUED' ? 'Location update queued' : selected.locationEnrichmentStatus === 'FAILED' ? 'Retry location update' : 'Update missing location data' }}
           </button>
-          <button v-if="isManagement" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button>
+          <button v-if="isManagement && canEditLocation" class="secondary" @click="startLocationEdit">{{ editingLocation ? 'Reload provider options' : 'Edit location metadata' }}</button>
         </div>
       </div>
       <p v-if="isManagement && missingLocationFields(selected).length" class="field-help" role="status">

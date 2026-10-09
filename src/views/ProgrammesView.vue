@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from "../components/PageHeader.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { apiRequest } from "../lib/api";
 import { myotaClient } from "../lib/myotaClient";
@@ -65,6 +66,7 @@ function resetForm(programme: Programme | null = null): void {
 }
 
 async function load(): Promise<void> {
+  error.value = "";
   const data = await apiRequest<{ items: Programme[] }>("/v1/programmes");
   programmes.value = data.items || [];
   store.programmes = programmes.value;
@@ -74,7 +76,8 @@ async function load(): Promise<void> {
         categories.value = data.items || [];
       })
       .catch(() => {
-        categories.value = [];
+        error.value =
+          "Category choices could not be refreshed. Existing programme data remains available.";
       }),
   ]);
 }
@@ -108,9 +111,9 @@ async function assignCategory(category: EntityCategory): Promise<void> {
       ];
       (selected.value as any).entityTypes = form.entityTypes;
       message.value = "Category assigned.";
-    } catch (error) {
-      message.value =
-        error instanceof Error ? error.message : "Unable to assign category.";
+    } catch (cause) {
+      error.value =
+        cause instanceof Error ? cause.message : "Unable to assign category.";
     }
   } else form.entityTypes.push(JSON.parse(JSON.stringify(category)));
   categorySelection.value = "";
@@ -125,9 +128,9 @@ async function removeCategory(code: string): Promise<void> {
         response.items || form.entityTypes.filter((item) => item.code !== code);
       (selected.value as any).entityTypes = form.entityTypes;
       message.value = "Category unassigned.";
-    } catch (error) {
-      message.value =
-        error instanceof Error ? error.message : "Unable to unassign category.";
+    } catch (cause) {
+      error.value =
+        cause instanceof Error ? cause.message : "Unable to unassign category.";
     }
   } else
     form.entityTypes = form.entityTypes.filter((item) => item.code !== code);
@@ -142,7 +145,7 @@ async function assignSelectedCategory(): Promise<void> {
 async function save(): Promise<void> {
   message.value = "";
   if (!form.slug.trim() || !form.name.trim()) {
-    message.value = "Programme identifier and name are required.";
+    error.value = "Programme identifier and name are required.";
     return;
   }
   if (
@@ -150,7 +153,7 @@ async function save(): Promise<void> {
     (!Number.isInteger(Number(form.validityDays)) ||
       Number(form.validityDays) < 1)
   ) {
-    message.value = "Enter a positive validity period or choose Unlimited.";
+    error.value = "Enter a positive validity period or choose Unlimited.";
     return;
   }
   saving.value = true;
@@ -188,9 +191,10 @@ async function save(): Promise<void> {
     await load();
     resetForm(saved);
     message.value = "Programme saved.";
-  } catch (error) {
-    message.value =
-      error instanceof Error ? error.message : "Unable to save programme.";
+  } catch (cause) {
+    message.value = "";
+    error.value =
+      cause instanceof Error ? cause.message : "Unable to save programme.";
   } finally {
     saving.value = false;
   }
@@ -213,16 +217,8 @@ onMounted(() =>
 </script>
 
 <template>
-  <section class="page-heading">
-    <div>
-      <p class="eyebrow">CONFIGURATION</p>
-      <h1>Programmes</h1>
-      <p class="muted">
-        Each programme owns its rules, category assignments, themes and policy
-        versions.
-      </p>
-    </div>
-    <button
+  <PageHeader :refresh="() => load()" :busy="saving || loadingEditor"
+    ><button
       class="primary"
       :disabled="saving"
       @click="
@@ -232,8 +228,8 @@ onMounted(() =>
       "
     >
       New programme
-    </button>
-  </section>
+    </button></PageHeader
+  >
   <div v-if="message" class="notice" role="status">{{ message }}</div>
   <div v-if="error" class="error-card" role="alert">{{ error }}</div>
   <p v-if="loadingEditor" class="notice" role="status">Loading programme…</p>
@@ -241,7 +237,6 @@ onMounted(() =>
     <article class="panel">
       <div class="panel-heading">
         <h2>Configured programmes</h2>
-        <button class="secondary" @click="load">Refresh</button>
       </div>
       <div class="table-list">
         <button

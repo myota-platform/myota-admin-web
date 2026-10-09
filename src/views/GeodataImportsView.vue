@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from "../components/PageHeader.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { apiRequest } from '../lib/api';
 import { canCancelPreprocessing, fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../lib/geodataImports';
@@ -354,14 +355,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="page-heading">
-    <div>
-      <p class="eyebrow">GEODATA PIPELINE</p>
-      <h1>Geodata imports</h1>
-      <p class="muted">Upload or paste a dataset, review its preprocessed records, then promote the records you select.</p>
-    </div>
-    <button class="secondary" :disabled="refreshing" @click="refreshImports(true)">{{ refreshing ? 'Refreshing…' : 'Refresh status' }}</button>
-  </section>
+<PageHeader :refresh="() => refreshImports(true)" :busy="refreshing"></PageHeader>
   <div v-if="message" class="notice" role="status">{{ message }}</div>
   <div v-if="error" class="error-card" role="alert">{{ error }}</div>
   <div v-if="refreshError" class="error-card" role="status">{{ refreshError }} Displayed results may be out of date.</div>
