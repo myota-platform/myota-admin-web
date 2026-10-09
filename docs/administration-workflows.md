@@ -149,7 +149,7 @@ Reviewers can return a version as `CHANGES_REQUESTED`. Published versions are im
 
 ## Rules and awards
 
-Open **Rules & awards** to create programme-owned `RULES` or `AWARD` drafts. The schema is deliberately JSON because each programme defines its own thresholds, eligibility, award requirements, labels, and supporting metadata.
+Open **Programmes → Rules & policies** to create programme-owned `RULES` or `AWARD` drafts. The schema is deliberately JSON because each programme defines its own thresholds, eligibility, award requirements, labels, and supporting metadata. Certificate design remains a separate **Awards & certificates** workspace. Published versions are read-only; publication dates are explicitly UTC.
 
 Policy versions move through the same draft/review/publish lifecycle. Publishing requires an explicit effective date and publisher identity. A published rules version becomes the programme’s effective rules snapshot; a published award is appended to the programme’s award catalogue with its version and effective date. Existing published versions are immutable.
 

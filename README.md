@@ -6,9 +6,9 @@ Activation Platform. This is intentionally separate from the public
 and account controls do not leak into the participant-facing application.
 
 MyOTA's purpose, motivation, and policy boundary are documented in the
-[project charter](https://github.com/myota-platform/myota-docs/blob/main/docs/project-charter.md).
+[project charter](https://github.com/myota-platform/myota-docs/blob/main/docs/governance/project-charter.md).
 The public Explorer and participant workflows are deliberately tracked as
-remaining work in the [charter gap analysis](https://github.com/myota-platform/myota-docs/blob/main/docs/charter-gap-analysis.md);
+remaining work in the [charter gap analysis](https://github.com/myota-platform/myota-docs/blob/main/docs/governance/charter-gap-analysis.md);
 the admin web should not absorb those participant-only responsibilities.
 
 ## Initial slice
@@ -34,14 +34,14 @@ the admin web should not absorb those participant-only responsibilities.
   entities; saving one section preserves drafts in the others. Geometry has a
   focused Leaflet/Geoman map with explicit vertex editing/replacement drawing.
   Review decisions remain on the separate review page. See the
-  [catalogue guide](https://github.com/myota-platform/myota-docs/blob/main/docs/entity-catalogue-editor.md).
+  [catalogue guide](https://github.com/myota-platform/myota-docs/blob/main/docs/domain/administration/entity-catalogue-editor.md).
 - Identity account search, multi-role user editing, least-privilege role creation/editing, privacy export and deactivation.
 - Paged, filtered geodata review and protected geometry editing; permanent
   deletion of any lifecycle status requires global-administrator authorization
   and explicit QSO/award-impact confirmation.
 - Geodata review page selection with current-page select-all, audited bulk approval, and global-administrator bulk deletion with QSO/activation impact confirmation.
 - Leaflet-based geodata review with a persistent viewport queue, explicit geometry edit mode, Leaflet-Geoman point/way/polygon drawing, and source/audit-aware inspection.
-- Read-only Entity map page showing all stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
+- Read-only Entity map page with explicitly paged stored geometries with lifecycle styling, clustered Leaflet markers, and popups for name, location metadata, shared categories, and programme memberships.
 - Database-backed multi-category selection for new candidates and reviewed entities; the first category remains the compatibility primary value.
 - Asynchronous geodata import submission for pasted or uploaded datasets, optional paste text when a file is selected, and clickable import-run summaries with entity counts, provenance, and errors.
 - Pre-processing queue validation with candidate-name Leaflet map previews,
@@ -72,13 +72,13 @@ edits configuration supplied by each programme.
 
 The [scaling delivery/evidence checklist](https://github.com/myota-platform/myota-docs/blob/main/docs/geodata-horizontal-scaling-roadmap.md#latest-delivery-and-evidence--7-october-2026)
 links the current upload, concurrency and worker integration. The
-[JetStream status guide](https://github.com/myota-platform/myota-docs/blob/main/docs/jetstream-admin-status.md)
+[JetStream status guide](https://github.com/myota-platform/myota-docs/blob/main/docs/operations/messaging/jetstream-admin-status.md)
 explains sampled history, unknown measurements and access permissions; this
 page never consumes, acknowledges or purges broker messages.
 
 ### Observability access
 
-After signing in, choose **Platform health → Observability** in the sidebar.
+After signing in, choose **Platform health → Metrics & dashboards** in the sidebar.
 Grafana is served from `/observability/` on the same host. The UI refreshes its
 MyOTA access token before navigation and mirrors the short-lived token into a
 SameSite=Strict cookie scoped only to that path so Nginx can validate access
@@ -97,16 +97,38 @@ restart.
 
 ## Vue application
 
+### Administration workspaces
+
+Navigation is grouped into Start, Entities, Programmes, People, Activity and
+Platform health. The searchable sidebar, route guards and page headings use
+one permission-aware workspace definition from the resolved identity `/me`
+response. Existing URLs stay valid; Entity categories remains `/master-data`.
+Users & access separates Users, Roles & permissions and Security events into
+tabs. Programme-owned pages have one local selector and a read-only header
+context; shared entities/imports remain platform-wide, including unassigned.
+
+Shared headings provide refresh, action spacing and consistent feedback.
+Published versions and immutable identifiers are visibly read-only. User saves
+preserve existing programme/jurisdiction/category grants, and cleared password
+fields cannot accidentally reapply an earlier reset. Permission-specific
+dashboard requests show unavailable counts as unknown rather than zero.
+Category and award controls reflect the actual owning API permissions; UI
+checks never replace server authorization. Map exploration reports loaded/total
+records and offers bounded additional pages instead of silently omitting them.
+
+See the [workspace guide](https://github.com/myota-platform/myota-docs/blob/main/docs/domain/administration/navigation-reorganization.md)
+and [delivery evidence](https://github.com/myota-platform/myota-docs/blob/main/docs/domain/administration/evidence/admin-workspaces-2026-10-09.md).
+
 All dates/times use UTC, regardless of browser timezone. Effective-date controls
 are explicitly labeled UTC; shared helpers normalize offset-bearing values and
 serialize new inputs with `Z`, preserving unchanged seconds. NATS/storage sample
-displays also identify UTC. See the [UTC policy](https://github.com/myota-platform/myota-docs/blob/main/docs/utc-time-policy.md).
+displays also identify UTC. See the [UTC policy](https://github.com/myota-platform/myota-docs/blob/main/docs/platform/utc-time-policy.md).
 
 Programme editing loads the full detail record and preserves programme-owned
 metadata. Award design includes the six default fields, named PNG/JPEG uploads
 through the activity API, background/signature selectors, and transient mock-data
 PDF previews in a separate window. See the
-[editor/design guide](https://github.com/myota-platform/myota-docs/blob/main/docs/programme-and-award-design.md).
+[editor/design guide](https://github.com/myota-platform/myota-docs/blob/main/docs/domain/awards/admin-designer.md).
 Browser regression coverage includes existing-record saves and artwork uploads.
 
 The current application is the complete Vue 3 +
@@ -170,8 +192,8 @@ For a production-style local preview, run `npm run build` followed by
 `npm run preview`. The deployment Compose manifest starts this UI on
 `http://localhost:8090`.
 
-Award background and signature binaries are addressed by object keys in the
-admin UI and can be uploaded through presigned SeaweedFS/S3 URLs. Local Compose
+Award background and signature binaries are selected from the asset catalogue
+and uploaded through the authenticated activity API, which writes SeaweedFS/S3. Local Compose
 provides SeaweedFS for those assets; certificate rendering produces a PDF when the
 registered background and signature are available, otherwise the immutable
 issuance render specification can be retried later.
