@@ -9,6 +9,13 @@
 .deletion-modal{max-width:640px}.deletion-warning{color:#8b2f2f}.deletion-warning p{margin:8px 0 0}.bulk-delete-list{background:#f5faf8;border:1px solid var(--line);border-radius:8px;max-height:150px;overflow:auto;padding:10px 16px 10px 34px}.bulk-delete-list li+li{margin-top:4px}.bulk-delete-list li small{color:var(--muted);display:block;font-size:11px;overflow-wrap:anywhere}
 
 /* Catalogue editing keeps the underlying page, filters and batch selection intact. */
+.form-grid { align-items: start; }
+.award-canvas-background img { width: 100%; height: 100%; object-fit: fill; }
+.award-canvas-element { touch-action: none; cursor: move; }
+.award-canvas-element img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.award-element-row { grid-template-columns: minmax(100px, 1fr) repeat(4, 55px); }
+.award-element-row.custom { grid-template-columns: minmax(100px, 1fr) repeat(4, 55px) auto; }
+.award-upload-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 body:has(.workspace-dialog[open]) { overflow: hidden; }
 .workspace-dialog {
   background: var(--white); border: 1px solid var(--line); border-radius: 14px;
