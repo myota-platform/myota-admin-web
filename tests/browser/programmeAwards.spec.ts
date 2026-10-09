@@ -75,6 +75,22 @@ async function fixtures(page: Page) {
   const uploads: any[] = [];
   const previews: any[] = [];
   const pageErrors: string[] = [];
+  const policy = {
+    id: "policy-1",
+    type: "RULES",
+    name: "Fixture policy",
+    status: "APPROVED",
+    schema: {},
+    effectiveFrom: "2026-10-09T15:00:00+02:00",
+  };
+  const content = {
+    id: "content-1",
+    key: "fixture.title",
+    locale: "en",
+    value: "Fixture content",
+    status: "APPROVED",
+    effectiveFrom: "2026-10-09T15:00:00+02:00",
+  };
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.addInitScript(() =>
     localStorage.setItem("myota_admin_access", "fixture-token"),
@@ -93,6 +109,22 @@ async function fixtures(page: Page) {
         saved.push(request.postDataJSON());
       }
       result = programme;
+    } else if (path === `/v1/programmes/${programme.slug}/policy-drafts`)
+      result = { items: [policy] };
+    else if (path === `/v1/programmes/${programme.slug}/content`)
+      result = { items: [content] };
+    else if (path === `/v1/programmes/${programme.slug}/content/coverage`)
+      result = { locales: [] };
+    else if (
+      path.endsWith("/policy-drafts/policy-1") ||
+      path.endsWith("/content/content-1")
+    ) {
+      const record = path.endsWith("policy-1") ? policy : content;
+      if (request.method() === "PATCH") {
+        saved.push(request.postDataJSON());
+        Object.assign(record, request.postDataJSON());
+      }
+      result = record;
     } else if (path === "/v1/entity-types") {
       await new Promise((resolve) => setTimeout(resolve, 100));
       result = { items: programme.entityTypes };
@@ -174,6 +206,28 @@ test("programme identifier/name load aligned and edits preserve custom rules/the
   expect(state.pageErrors).toEqual([]);
 });
 
+for (const screen of [
+  { route: "/policies", row: "Fixture policy" },
+  { route: "/content", row: "fixture.title" },
+]) {
+  test(`${screen.route} publication inputs remain UTC in a Madrid browser`, async ({
+    page,
+  }) => {
+    const state = await fixtures(page);
+    await page.goto(screen.route);
+    await page.getByRole("button", { name: new RegExp(screen.row) }).click();
+    await expect(page.getByLabel("Effective from (UTC)")).toHaveValue(
+      "2026-10-09T13:00",
+    );
+    await page.getByLabel("Effective from (UTC)").fill("2026-10-09T14:10");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect
+      .poll(() => state.saved.at(-1)?.effectiveFrom)
+      .toBe("2026-10-09T14:10:00.000Z");
+    expect(state.pageErrors).toEqual([]);
+  });
+}
+
 test("award defaults, existing layout, editable fields and custom text survive saves", async ({
   page,
 }, testInfo) => {
@@ -193,6 +247,9 @@ test("award defaults, existing layout, editable fields and custom text survive s
   await expect(
     page.getByRole("combobox", { name: "Orientation", exact: true }),
   ).toHaveValue("LANDSCAPE");
+  await expect(page.getByLabel("Effective from (UTC)")).toHaveValue(
+    "2026-10-09T12:45",
+  );
   const box = await page.locator(".award-canvas").boundingBox();
   expect(box!.width).toBeGreaterThan(box!.height);
   await expect(page.getByAltText("Selected award background")).toBeVisible();
@@ -207,7 +264,7 @@ test("award defaults, existing layout, editable fields and custom text survive s
     .click();
   await expect(page.getByRole("status")).toContainText("Award draft saved");
   expect(state.saved[0].template.layoutVersion).toBe(2);
-  expect(state.saved[0].effectiveFrom).toBe("2026-10-09T12:45:30Z");
+  expect(state.saved[0].effectiveFrom).toBe("2026-10-09T12:45:30.000Z");
   expect(state.saved[0].template.elements[0].x).toBe(0.1);
   expect(state.saved[0].template.elements[0].style.align).toBe("center");
   expect(state.saved[0].template.elements.at(-1).label).toBe(

@@ -97,6 +97,11 @@ restart.
 
 ## Vue application
 
+All dates/times use UTC, regardless of browser timezone. Effective-date controls
+are explicitly labeled UTC; shared helpers normalize offset-bearing values and
+serialize new inputs with `Z`, preserving unchanged seconds. NATS/storage sample
+displays also identify UTC. See the [UTC policy](https://github.com/myota-platform/myota-docs/blob/main/docs/utc-time-policy.md).
+
 Programme editing loads the full detail record and preserves programme-owned
 metadata. Award design includes the six default fields, named PNG/JPEG uploads
 through the activity API, background/signature selectors, and transient mock-data

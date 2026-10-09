@@ -53,6 +53,7 @@ async function openObservability(): Promise<void> {
       <label class="programme-context"><span>Programme scope</span><select v-model="store.currentProgramme" aria-label="Programme scope"><option value="">All programmes</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label>
       <span class="status-dot" :class="store.apiStatus">{{ store.apiStatus === 'connected' ? 'API connected' : 'API warning' }}</span>
       <span class="account-label">{{ store.account?.displayName || store.account?.email }}</span>
+      <span class="account-label" title="All MyOTA dates and times use UTC">Times: UTC</span>
       <button class="quiet" @click="signOut">Sign out</button>
     </div>
   </header>

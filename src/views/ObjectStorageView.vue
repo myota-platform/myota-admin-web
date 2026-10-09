@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { utcDisplay } from "../lib/utc";
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { apiRequest } from '../lib/api';
 import { storageBytes } from '../lib/objectStorage';
@@ -16,7 +17,7 @@ const controller = new AbortController();
 let poll: ReturnType<typeof setInterval> | undefined;
 let disposed = false;
 
-function timestamp(value?: string): string { return value ? new Date(value).toLocaleString() : 'Not sampled yet'; }
+function timestamp(value?: string): string { return utcDisplay(value); }
 function count(value?: number | null): string { return value == null ? 'Unavailable' : value.toLocaleString(); }
 async function refresh(): Promise<void> {
   if (refreshing.value || disposed) return;

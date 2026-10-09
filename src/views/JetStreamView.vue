@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { utcDisplay } from "../lib/utc";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { apiRequest } from '../lib/api';
 import { consumerRows, queueTotals } from '../lib/jetstream';
@@ -22,7 +23,7 @@ const rows = computed(() => consumerRows(latest.value, stream.value, consumer.va
 const streams = computed(() => (latest.value?.streams || []).filter(item => !stream.value || item.name === stream.value));
 const consumers = computed(() => [...new Set(consumerRows(latest.value, stream.value).map(item => item.name))]);
 watch(stream, () => { consumer.value = ''; });
-function timestamp(value?: string): string { return value ? new Date(value).toLocaleString() : 'Not sampled yet'; }
+function timestamp(value?: string): string { return utcDisplay(value); }
 function age(value: number | null): string { return value === null ? 'Unavailable' : `${Math.round(value)} s`; }
 async function refresh(): Promise<void> {
   if (refreshing.value || disposed) return;

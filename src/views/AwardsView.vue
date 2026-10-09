@@ -4,6 +4,7 @@ import { apiRequest } from "../lib/api";
 import { myotaClient } from "../lib/myotaClient";
 import { useAppStore } from "../stores/app";
 import { bytesFromBase64, inspectArtwork } from "../lib/awardArtwork";
+import { utcInput, utcInputValue } from "../lib/utc";
 
 interface TemplateElement {
   kind: string;
@@ -170,14 +171,6 @@ function defaultElements(): TemplateElement[] {
     },
   ];
 }
-function localDateTime(value?: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 16);
-}
 function edit(item: Award | null): void {
   selected.value = item;
   const background: any = item?.backgroundAsset || {};
@@ -206,7 +199,7 @@ function edit(item: Award | null): void {
     description: item?.description || "",
     category: item?.category || "HUNTER",
     achievementMetric: item?.achievementMetric || "QSO_COUNT",
-    effectiveFrom: localDateTime(item?.effectiveFrom),
+    effectiveFrom: utcInput(item?.effectiveFrom),
     condition: JSON.stringify(
       item?.condition || {
         kind: "AND",
@@ -470,12 +463,10 @@ async function save(): Promise<void> {
           },
           signatureAssetId: form.signatureAssetId || null,
           managerName: form.managerName,
-          effectiveFrom: form.effectiveFrom
-            ? form.effectiveFrom ===
-              localDateTime(selected.value?.effectiveFrom)
-              ? selected.value?.effectiveFrom
-              : new Date(form.effectiveFrom).toISOString()
-            : null,
+          effectiveFrom: utcInputValue(
+            form.effectiveFrom,
+            selected.value?.effectiveFrom,
+          ),
         }),
         headers: { "Idempotency-Key": crypto.randomUUID() },
       },
@@ -500,7 +491,10 @@ async function action(actionName: string, decision?: string): Promise<void> {
         : actionName === "publish"
           ? {
               status: "PUBLISHED",
-              effectiveFrom: new Date(form.effectiveFrom).toISOString(),
+              effectiveFrom: utcInputValue(
+                form.effectiveFrom,
+                selected.value?.effectiveFrom,
+              ),
               publisherId: store.account?.id,
             }
           : actionName === "retire"
@@ -650,7 +644,7 @@ onMounted(() => load());
         ><label class="wide"
           >Description<textarea v-model="form.description"></textarea></label
         ><label
-          >Effective from<input
+          >Effective from (UTC)<input
             v-model="form.effectiveFrom"
             type="datetime-local" /></label
         ><label
