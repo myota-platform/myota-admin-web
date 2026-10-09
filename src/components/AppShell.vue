@@ -1,79 +1,206 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { useAppStore } from '../stores/app';
-import { apiRequest } from '../lib/api';
-
+import { computed, nextTick, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAppStore } from "../stores/app";
+import { apiRequest } from "../lib/api";
+import { availablePages, pageFor } from "../lib/adminNavigation";
 const store = useAppStore();
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
-
-const sections = [
-  { label: 'Overview', items: [{ label: 'Dashboard', icon: '⌂', path: '/dashboard' }] },
-  { label: 'Programme setup', items: [
-    { label: 'Programmes', icon: '◈', path: '/programmes' },
-    { label: 'Programme policy', icon: '✓', path: '/policies' },
-    { label: 'Content & translations', icon: '文', path: '/content' },
-    { label: 'Shared catalogue', icon: '▦', path: '/master-data' },
-  ] },
-  { label: 'Geodata', items: [
-    { label: 'Review queue', icon: '⌖', path: '/geodata' },
-    { label: 'Imports', icon: '⇧', path: '/geodata-imports' },
-    { label: 'Entity catalogue', icon: '✎', path: '/entity-management' },
-    { label: 'Map explorer', icon: '◉', path: '/entity-map' },
-  ] },
-  { label: 'Operations & access', items: [
-    { label: 'Activations & QSOs', icon: '◷', path: '/activity' },
-    { label: 'Award certificates', icon: '▣', path: '/awards' },
-    { label: 'Users & roles', icon: '◎', path: '/identity' },
-  ] },
-];
-
-const pageTitle = computed(() => route.path === '/dashboard' ? 'Dashboard' : String(route.meta.title || 'Administration'));
-function isActive(path: string): boolean { return route.path === path; }
-async function signOut(): Promise<void> { store.signOut(); await router.push('/login'); }
+const navigation = ref<HTMLElement | null>(null);
+const navigationToggle = ref<HTMLButtonElement | null>(null);
+watch(sidebarOpen, async (open) => {
+  await nextTick();
+  if (open) navigation.value?.querySelector<HTMLInputElement>("input")?.focus();
+});
+function closeNavigation(): void {
+  sidebarOpen.value = false;
+  navigationToggle.value?.focus();
+}
+function navigationKey(event: KeyboardEvent): void {
+  if (!sidebarOpen.value) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeNavigation();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const controls = [
+    ...(navigation.value?.querySelectorAll<HTMLElement>("a, button, input") ||
+      []),
+  ];
+  const first = controls[0];
+  const last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+}
+const search = ref("");
+const error = ref("");
+const pages = computed(() => availablePages(store.account));
+const sections = computed(() =>
+  [...new Set(pages.value.map((page) => page.group))]
+    .map((label) => ({
+      label,
+      items: pages.value.filter(
+        (page) =>
+          page.group === label &&
+          (page.title + " " + page.description)
+            .toLowerCase()
+            .includes(search.value.toLowerCase().trim()),
+      ),
+    }))
+    .filter((section) => section.items.length),
+);
+const current = computed(() => pageFor(route.path));
+const pageTitle = computed(
+  () => current.value?.title || String(route.meta.title || "Administration"),
+);
+const scopeLabel = computed(() =>
+  current.value?.programmeScoped
+    ? store.programmes.find((item) => item.slug === store.currentProgramme)
+        ?.name || "Choose a programme below"
+    : "Platform-wide",
+);
+watch(
+  () => route.fullPath,
+  () => {
+    sidebarOpen.value = false;
+    error.value = "";
+  },
+);
+async function signOut(): Promise<void> {
+  store.signOut();
+  await router.push("/login");
+}
 async function openObservability(): Promise<void> {
+  error.value = "";
   try {
-    // Refresh an expired access token before leaving the SPA for the proxied Grafana UI.
-    await apiRequest('/v1/operations/observability-session');
-    window.location.assign('/observability/');
-  } catch {
-    store.signOut();
-    await router.push('/login');
+    await apiRequest("/v1/operations/observability-session");
+    window.location.assign("/observability/");
+  } catch (cause) {
+    error.value =
+      cause instanceof Error
+        ? cause.message
+        : "Unable to open metrics. Your current session remains active.";
   }
 }
 </script>
-
 <template>
+  <a class="skip-link" href="#workspace-content">Skip to workspace</a>
   <header class="topbar">
-    <button class="mobile-menu" aria-label="Open navigation" @click="sidebarOpen = !sidebarOpen">☰</button>
-    <RouterLink class="brand" to="/dashboard"><span class="brand-mark">M</span><span><strong>MyOTA</strong><small>Administration · Vue</small></span></RouterLink>
+    <button
+      ref="navigationToggle"
+      class="mobile-menu"
+      aria-label="Toggle navigation"
+      :aria-expanded="sidebarOpen"
+      aria-controls="admin-navigation"
+      @click="sidebarOpen = !sidebarOpen"
+    >
+      ☰
+    </button>
+    <RouterLink class="brand" to="/dashboard"
+      ><span class="brand-mark">M</span
+      ><span
+        ><strong>MyOTA</strong><small>Administration</small></span
+      ></RouterLink
+    >
     <div class="top-actions">
-      <label class="programme-context"><span>Programme scope</span><select v-model="store.currentProgramme" aria-label="Programme scope"><option value="">All programmes</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label>
-      <span class="status-dot" :class="store.apiStatus">{{ store.apiStatus === 'connected' ? 'API connected' : 'API warning' }}</span>
-      <span class="account-label">{{ store.account?.displayName || store.account?.email }}</span>
-      <span class="account-label" title="All MyOTA dates and times use UTC">Times: UTC</span>
-      <button class="quiet" @click="signOut">Sign out</button>
+      <span class="scope-indicator" :title="scopeLabel">{{ scopeLabel }}</span
+      ><span class="status-dot" :class="store.apiStatus">{{
+        store.apiStatus === "connected" ? "API connected" : "API warning"
+      }}</span
+      ><span class="account-label">{{
+        store.account?.displayName || store.account?.email
+      }}</span
+      ><span class="utc-indicator">UTC</span
+      ><button class="quiet" @click="signOut">Sign out</button>
     </div>
   </header>
+  <button
+    v-if="sidebarOpen"
+    class="nav-scrim"
+    aria-label="Close navigation"
+    @click="closeNavigation"
+  />
   <div class="app-layout">
-    <aside class="sidebar" :class="{ open: sidebarOpen }" aria-label="Administration navigation">
-      <p class="nav-label">Workspace</p>
-      <nav v-for="section in sections" :key="section.label" class="nav-section">
+    <aside
+      ref="navigation"
+      id="admin-navigation"
+      class="sidebar"
+      :class="{ open: sidebarOpen }"
+      aria-label="Administration navigation"
+      @keydown="navigationKey"
+    >
+      <label class="nav-search"
+        >Find a workspace<input
+          v-model="search"
+          type="search"
+          placeholder="Search navigation"
+      /></label>
+      <nav
+        v-for="section in sections"
+        :key="section.label"
+        class="nav-section"
+        :aria-label="section.label"
+      >
         <p class="nav-section-label">{{ section.label }}</p>
-        <RouterLink v-for="item in section.items" :key="item.path" class="nav-item" :class="{ active: isActive(item.path) }" :aria-current="isActive(item.path) ? 'page' : undefined" :to="item.path" @click="sidebarOpen = false"><span class="nav-item-icon" aria-hidden="true">{{ item.icon }}</span>{{ item.label }}</RouterLink>
+        <template v-for="item in section.items" :key="item.path">
+          <a
+            v-if="item.path === '/observability/'"
+            class="nav-item"
+            :href="item.path"
+            @click.prevent="openObservability"
+            ><span class="nav-item-icon" aria-hidden="true">{{
+              item.icon
+            }}</span
+            >{{ item.title }}</a
+          >
+          <RouterLink
+            v-else
+            class="nav-item"
+            :class="{ active: route.path === item.path }"
+            :aria-current="route.path === item.path ? 'page' : undefined"
+            :to="item.path"
+            ><span class="nav-item-icon" aria-hidden="true">{{
+              item.icon
+            }}</span
+            >{{ item.title }}</RouterLink
+          >
+        </template>
       </nav>
-      <nav class="nav-section" aria-label="Observability">
-        <p class="nav-section-label">Platform health</p>
-        <RouterLink class="nav-item" :class="{ active: isActive('/jetstream') }" to="/jetstream"><span class="nav-item-icon" aria-hidden="true">⇄</span>NATS / JetStream</RouterLink>
-        <RouterLink class="nav-item" :class="{ active: isActive('/object-storage') }" to="/object-storage"><span class="nav-item-icon" aria-hidden="true">▤</span>SeaweedFS storage</RouterLink>
-        <a class="nav-item" href="/observability/" @click.prevent="openObservability"><span class="nav-item-icon" aria-hidden="true">⌁</span>Observability</a>
-      </nav>
-      <div class="sidebar-footer"><p class="scope-note">Programme configuration, identity, geodata, activity and award administration are available in the Vue workspace.</p></div>
+      <p v-if="!sections.length" class="muted">
+        No available workspace matches this search.
+      </p>
+      <div class="sidebar-footer">
+        <p class="scope-note">
+          Workspaces reflect your permissions. Shared entities and imports are
+          platform-wide. All operational times are UTC.
+        </p>
+      </div>
     </aside>
-    <main class="content">
-      <div class="breadcrumbs"><span>MyOTA</span><span>/</span><strong>{{ pageTitle }}</strong></div>
+    <main id="workspace-content" class="content" tabindex="-1">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <RouterLink to="/dashboard">MyOTA</RouterLink
+        ><span v-if="current?.group && current.group !== 'Start'"
+          >/ {{ current.group }}</span
+        ><span>/</span><strong>{{ pageTitle }}</strong>
+      </nav>
+      <div v-if="store.bootstrapWarning" class="warning-banner" role="status">
+        {{ store.bootstrapWarning }}
+        <button
+          class="link-button"
+          @click="store.loadProgrammes().catch(() => {})"
+        >
+          Retry programme choices
+        </button>
+      </div>
+      <div v-if="error" class="error-card" role="alert">{{ error }}</div>
       <slot />
     </main>
   </div>
