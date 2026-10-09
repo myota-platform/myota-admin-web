@@ -17,12 +17,21 @@ try {
   const errors = [];
   const blockedWrites = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(token => localStorage.setItem('myota_admin_access', token), accessToken);
-  await page.route('https://tile.openstreetmap.org/**', route => route.abort());
-  await page.route('**/v1/**', route => {
-    if (route.request().method() === 'GET') return route.continue();
-    blockedWrites.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
-    return route.abort();
+  await page.addInitScript(({ token, expectedOrigin }) => {
+    if (window.location.origin === expectedOrigin) localStorage.setItem('myota_admin_access', token);
+  }, { token: accessToken, expectedOrigin: origin.origin });
+  await page.route('**/*', route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    // DNS filtering or ingress redirects must never send the authenticated
+    // browser to another origin. Tokens are installed on the intended UI only.
+    if (request.isNavigationRequest() && url.origin !== origin.origin) return route.abort();
+    if (url.hostname === 'tile.openstreetmap.org') return route.abort();
+    if (url.pathname.startsWith('/v1/') && request.method() !== 'GET') {
+      blockedWrites.push(`${request.method()} ${url.pathname}`);
+      return route.abort();
+    }
+    return route.continue();
   });
   await page.goto(new URL('/entity-management', origin).href);
   const row = page.locator('.geo-row').first();
