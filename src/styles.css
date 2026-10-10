@@ -148,8 +148,6 @@ button:disabled, select:disabled { cursor: not-allowed; opacity: .65; }
   gap: 10px;
   margin-top: 16px;
 }
-.jetstream-metrics, .jetstream-section { margin-top: 18px; }
-.jetstream-stream { margin-top: 14px; }
 .table-scroll { max-width: 100%; overflow-x: auto; }
 .operations-table { border-collapse: collapse; width: 100%; }
 .operations-table th, .operations-table td { border-bottom: 1px solid var(--line); padding: 12px 8px; text-align: left; vertical-align: top; }

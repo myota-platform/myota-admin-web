@@ -128,15 +128,6 @@ export const adminPages: AdminPage[] = [
     allowed: scope("activity.read", "activity.admin"),
   },
   {
-    path: "/jetstream",
-    title: "NATS / JetStream",
-    group: "Platform health",
-    icon: "⇄",
-    description:
-      "Inspect actual stream and consumer backlog, acknowledgements and recorded status history.",
-    allowed: scope("operations.read", "observability.view"),
-  },
-  {
     path: "/object-storage",
     title: "SeaweedFS storage",
     group: "Platform health",

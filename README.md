@@ -53,9 +53,7 @@ the admin web should not absorb those participant-only responsibilities.
 - Automatic worker-status refresh, authoritative counts, older active runs and
   cross-page candidate selection; history remains paged below the workspace.
 - Revision-checked entity edits with conflict/reload guidance, not silent overwrites.
-- Authenticated `/jetstream` status page with actual broker streams, consumer
-  backlog/acknowledgement settings and persistent paged history through the
-  operations API. No direct NATS/database access or message controls in the browser.
+
 - Activation/QSO operational list with protected activity-read scope.
 - Programme-owned hunter/activator award drafts, nested conditions, configurable levels, print profiles, draggable certificate fields, asset registration, and request/issuance visibility through the shared activity API on port 8004.
 - Keyboard-friendly responsive layout with visible status, error and loading states.
@@ -72,9 +70,8 @@ edits configuration supplied by each programme.
 
 The [scaling delivery/evidence checklist](https://github.com/myota-platform/myota-docs/blob/main/docs/geodata-horizontal-scaling-roadmap.md#latest-delivery-and-evidence--7-october-2026)
 links the current upload, concurrency and worker integration. The
-[JetStream status guide](https://github.com/myota-platform/myota-docs/blob/main/docs/operations/messaging/jetstream-admin-status.md)
-explains sampled history, unknown measurements and access permissions; this
-page never consumes, acknowledges or purges broker messages.
+
+The former Admin NATS/JetStream inspection page has been retired. Use the authenticated Grafana Metrics & dashboards workspace; its Surveyor dashboards are documented in the [NATS monitoring migration](https://github.com/myota-platform/myota-docs/blob/main/docs/observability/nats-surveyor-migration.md).
 
 ### Observability access
 

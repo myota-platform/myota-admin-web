@@ -12,7 +12,6 @@ import AwardsView from "./views/AwardsView.vue";
 import GeodataImportsView from "./views/GeodataImportsView.vue";
 import GeodataWorkspaceView from "./views/GeodataWorkspaceView.vue";
 import EntityMapView from "./views/EntityMapView.vue";
-import JetStreamView from "./views/JetStreamView.vue";
 import ObjectStorageView from "./views/ObjectStorageView.vue";
 import AccessDeniedView from "./views/AccessDeniedView.vue";
 import { pageFor } from "./lib/adminNavigation";
@@ -82,11 +81,6 @@ const routes = [
     path: "/geodata-imports",
     component: GeodataImportsView,
     meta: { title: "Geodata imports" },
-  },
-  {
-    path: "/jetstream",
-    component: JetStreamView,
-    meta: { title: "NATS / JetStream" },
   },
   {
     path: "/object-storage",
