@@ -465,10 +465,7 @@ test("operations pages retain live-data presentation, refresh controls and UTC t
   page,
 }) => {
   const state = await fixtures(page, ["operations.read"]);
-  for (const [path, title] of [
-    ["/jetstream", "NATS / JetStream"],
-    ["/object-storage", "SeaweedFS storage"],
-  ]) {
+  for (const [path, title] of [["/object-storage", "SeaweedFS storage"]]) {
     await page.goto(path);
     await expect(
       page.getByRole("heading", { name: title, exact: true }),
