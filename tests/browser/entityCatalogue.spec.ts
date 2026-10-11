@@ -172,14 +172,17 @@ test('optional catalogue map and manual candidate drawing remain usable', async 
 test('website and plain-text description display and save with optimistic concurrency', async ({ page }) => {
   await page.locator('.geo-row').first().getByRole('button').click();
   const editor = page.getByRole('dialog');
-  await expect(editor.getByRole('link', { name: 'https://alamillo.example' })).toHaveAttribute('rel', 'noopener noreferrer');
-  await expect(editor).toContainText('Riverside park');
-  await editor.locator('.editor-fields input[type="url"]').fill('https://new.example');
-  await editor.locator('.editor-fields textarea[maxlength="2000"]').fill('New plain text');
-  await editor.locator('.editor-fields input[type="url"]').fill('javascript:alert(1)');
+  await expect(editor.getByRole('heading', { name: 'Website and description', exact: true })).toBeVisible();
+  await expect(editor.getByLabel('Website')).toBeVisible();
+  await expect(editor.getByLabel('Website')).toHaveValue('https://alamillo.example');
+  await expect(editor.getByLabel('Description')).toBeVisible();
+  await expect(editor.getByLabel('Description')).toHaveValue('Riverside park');
+  await editor.getByLabel('Website').fill('https://new.example');
+  await editor.getByLabel('Description').fill('New plain text');
+  await editor.getByLabel('Website').fill('javascript:alert(1)');
   await editor.getByRole('button', { name: 'Save website and description' }).click();
   await expect(editor.getByRole('alert')).toContainText('absolute HTTP or HTTPS');
-  await editor.locator('.editor-fields input[type="url"]').fill('https://new.example');
+  await editor.getByLabel('Website').fill('https://new.example');
   await editor.getByRole('button', { name: 'Save website and description' }).click();
   await expect(editor.getByRole('link', { name: 'https://new.example' })).toBeVisible();
   await expect(editor).toContainText('New plain text');

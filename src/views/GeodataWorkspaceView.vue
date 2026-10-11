@@ -613,6 +613,18 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
           <button class="secondary" :disabled="editorSaving || selectedIndex < 0 || selectedIndex >= entities.length - 1" @click="navigateEntity(1)">Next entity</button>
         </div>
       </div>
+      <section class="entity-public-metadata management-public-metadata" aria-label="Website and description">
+        <div>
+          <h3>Website and description</h3>
+          <p class="field-help">Public entity details. Website must use HTTP or HTTPS; descriptions are plain text.</p>
+        </div>
+        <fieldset :disabled="editorSaving" class="public-metadata-fields">
+          <label>Website<input v-model="editWebsite" :readonly="!canEdit" type="url" maxlength="2048" placeholder="https://example.org"></label>
+          <label>Description<textarea v-model="editDescription" :readonly="!canEdit" maxlength="2000" placeholder="Plain text"></textarea></label>
+          <p v-if="!canEdit" class="read-only-note">Editing these details requires geodata review permission.</p>
+          <button class="secondary" :disabled="!canEdit || !(editWebsite !== (selected.website || '') || editDescription !== (selected.description || ''))" @click="savePublicMetadata">Save website and description</button>
+        </fieldset>
+      </section>
       <nav class="editor-tabs" aria-label="Entity editing sections">
         <button v-for="tab in editorTabs" :key="tab.id" type="button" class="secondary"
           :aria-current="editorTab === tab.id ? 'page' : undefined" @click="setEditorTab(tab.id)">{{ tab.label }}</button>
@@ -629,7 +641,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
       </div>
       <span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span>
     </div>
-    <section class="entity-public-metadata" aria-label="Website and description">
+    <section v-if="!isManagement" class="entity-public-metadata" aria-label="Website and description">
       <p><strong>Website:</strong> <a v-if="safeWebsite(selected.website)" :href="safeWebsite(selected.website)!" target="_blank" rel="noopener noreferrer">{{ selected.website }}</a><span v-else>{{ selected.website || 'Not provided' }}</span></p>
       <p><strong>Description:</strong> {{ selected.description || 'Not provided' }}</p>
     </section>
@@ -654,9 +666,6 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <label>Display name<input v-model="editName" :readonly="!canEdit"></label>
         <label>Name change note<textarea v-model="editNote" placeholder="Explain this name change"></textarea></label>
         <button class="primary" :disabled="!canEdit || !editName.trim()" @click="saveName">Save name</button>
-        <label>Website<input v-model="editWebsite" :readonly="!canEdit" type="url" maxlength="2048" placeholder="https://example.org"><small class="field-help">Absolute HTTP or HTTPS URL. Leave blank and save to clear.</small></label>
-        <label>Description<textarea v-model="editDescription" :readonly="!canEdit" maxlength="2000" placeholder="Plain text"></textarea><small class="field-help">Up to 2,000 characters. Leave blank and save to clear.</small></label>
-        <button class="secondary" :disabled="!canEdit || !(editWebsite !== (selected.website || '') || editDescription !== (selected.description || ''))" @click="savePublicMetadata">Save website and description</button>
       </section>
       <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity categories</h3>
