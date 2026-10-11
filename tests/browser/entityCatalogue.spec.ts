@@ -186,11 +186,21 @@ test('website and plain-text description display and save with optimistic concur
   await expect(editor.getByRole('alert')).toContainText('absolute HTTP or HTTPS');
   await website.fill('https://new.example');
   await editor.getByRole('button', { name: 'Save website and description' }).click();
-  await expect(editor.getByRole('link', { name: 'https://new.example' })).toBeVisible();
-  await expect(editor).toContainText('New plain text');
+  await expect(website).toHaveValue('https://new.example');
+  await expect(description).toHaveValue('New plain text');
   await editor.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.geo-row').nth(1).getByRole('button').click();
-  const legacy = page.getByRole('dialog');
-  await expect(legacy).toContainText('Website: Not provided');
-  await expect(legacy).toContainText('Description: Not provided');
+  const legacyManagement = page.getByRole('dialog');
+  await expect(legacyManagement.getByRole('textbox', { name: 'Website', exact: true })).toHaveValue('');
+  await expect(legacyManagement.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('');
+  await legacyManagement.getByRole('button', { name: 'Close', exact: true }).click();
+
+  await page.goto('/geodata');
+  await page.locator('.geo-row').first().getByRole('button').click();
+  const reviewer = page.locator('.editor-panel');
+  await expect(reviewer.getByRole('link', { name: 'https://new.example' })).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(reviewer).toContainText('New plain text');
+  await page.locator('.geo-row').nth(1).getByRole('button').click();
+  await expect(reviewer).toContainText('Website: Not provided');
+  await expect(reviewer).toContainText('Description: Not provided');
 });
