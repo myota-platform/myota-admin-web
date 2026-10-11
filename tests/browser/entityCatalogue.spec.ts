@@ -3,9 +3,12 @@ import type { GeoEntity } from '../../src/types';
 
 // Real Vue, Leaflet and Geoman with isolated HTTP fixtures: no live mutations
 // or public tile traffic are used to qualify presentation/state transitions.
+const submittedProposals: any[] = [];
+
 test.beforeEach(async ({ page }) => {
+  submittedProposals.length = 0;
   const entities: GeoEntity[] = [
-    { id: 'park-1', name: 'Parque del Alamillo', status: 'CANDIDATE', version: 1,
+    { id: 'park-1', name: 'Parque del Alamillo', website: 'https://alamillo.example', description: 'Riverside park', status: 'CANDIDATE', version: 1,
       entityTypes: ['PARK'], geometry: { type: 'Polygon', coordinates: [[
         [-5.995, 37.415], [-5.985, 37.415], [-5.985, 37.425], [-5.995, 37.415],
       ]] }, location: { country: 'Spain', city: 'Sevilla' } },
@@ -35,11 +38,16 @@ test.beforeEach(async ({ page }) => {
           expect(request.headers()['if-match']).toBeDefined();
           const payload = request.postDataJSON();
           if (payload.name) entity.name = payload.name;
+          if ('website' in payload) entity.website = payload.website;
+          if ('description' in payload) entity.description = payload.description;
           if (payload.geometry) entity.geometry = payload.geometry;
           entity.version = (entity.version || 0) + 1;
         }
         body = entity;
       }
+    } else if (path === '/v1/geodata/proposals' && request.method() === 'POST') {
+      submittedProposals.push(request.postDataJSON());
+      body = { id: 'proposal-1', status: 'COMPLETED' };
     } else if (path === '/v1/geodata/entity-deletion-jobs') {
       const payload = request.postDataJSON();
       const job = { id: `job-${payload.entityId}`, entityId: payload.entityId,
@@ -147,6 +155,8 @@ test('optional catalogue map and manual candidate drawing remain usable', async 
   await page.getByRole('button', { name: 'New Candidate', exact: true }).click();
   const proposal = page.locator('article').filter({ has: page.getByRole('heading', { name: 'New Candidate', exact: true }) });
   await proposal.getByLabel('Name', { exact: true }).fill('Manual fixture candidate');
+  await proposal.locator('input[type="url"]').fill('https://manual.example');
+  await proposal.locator('textarea[maxlength="2000"]').first().fill('Manual candidate description');
   await proposal.getByLabel('Park', { exact: true }).check();
   await proposal.getByRole('button', { name: 'Draw point on map' }).click();
   await page.locator('.map-panel .leaflet-map').click({ position: { x: 220, y: 180 } });
@@ -155,4 +165,27 @@ test('optional catalogue map and manual candidate drawing remain usable', async 
   expect(geometry.coordinates).not.toEqual([-5.99, 37.39]);
   await proposal.getByRole('button', { name: 'Submit candidate' }).click();
   await expect(proposal).toHaveCount(0);
+  expect(submittedProposals[0].feature.properties.website).toBe('https://manual.example');
+  expect(submittedProposals[0].feature.properties.description).toBe('Manual candidate description');
+});
+
+test('website and plain-text description display and save with optimistic concurrency', async ({ page }) => {
+  await page.locator('.geo-row').first().getByRole('button').click();
+  const editor = page.getByRole('dialog');
+  await expect(editor.getByRole('link', { name: 'https://alamillo.example' })).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(editor).toContainText('Riverside park');
+  await editor.locator('.editor-fields input[type="url"]').fill('https://new.example');
+  await editor.locator('.editor-fields textarea[maxlength="2000"]').fill('New plain text');
+  await editor.locator('.editor-fields input[type="url"]').fill('javascript:alert(1)');
+  await editor.getByRole('button', { name: 'Save website and description' }).click();
+  await expect(editor.getByRole('alert')).toContainText('absolute HTTP or HTTPS');
+  await editor.locator('.editor-fields input[type="url"]').fill('https://new.example');
+  await editor.getByRole('button', { name: 'Save website and description' }).click();
+  await expect(editor.getByRole('link', { name: 'https://new.example' })).toBeVisible();
+  await expect(editor).toContainText('New plain text');
+  await editor.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.geo-row').nth(1).getByRole('button').click();
+  const legacy = page.getByRole('dialog');
+  await expect(legacy).toContainText('Website: Not provided');
+  await expect(legacy).toContainText('Description: Not provided');
 });

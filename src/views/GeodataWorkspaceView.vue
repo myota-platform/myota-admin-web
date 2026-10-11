@@ -24,8 +24,8 @@ interface LocationOption { name: string; code?: string | null; countries?: Locat
 const entities = ref<GeoEntity[]>([]); const categories = ref<EntityCategory[]>([]); const selected = ref<GeoEntity | null>(null); const selectedIds = ref<string[]>([]); const total = ref(0); const page = ref(1); const pageSize = ref(25); const loading = ref(false); const error = ref(''); const message = ref(''); const audit = ref<AuditData>({});
 const statuses = ['CANDIDATE', 'APPROVED', 'RETIRED', 'REJECTED'];
 const filters = reactive({ programme: '', status: [] as string[], entityType: '', continent: '', country: '', region: '', province: '', city: '' });
-const editName = ref(''); const editNote = ref(''); const geometryNote = ref(''); const geometryJson = ref(''); const editTypes = ref<string[]>([]); const geometryType = ref('');
-const creating = ref(false); const newName = ref(''); const newTypes = ref<string[]>([]); const newGeometry = ref('{\n  "type": "Point",\n  "coordinates": [-5.99, 37.39]\n}');
+const editName = ref(''); const editWebsite = ref(''); const editDescription = ref(''); const editNote = ref(''); const geometryNote = ref(''); const geometryJson = ref(''); const editTypes = ref<string[]>([]); const geometryType = ref('');
+const creating = ref(false); const newName = ref(''); const newWebsite = ref(''); const newDescription = ref(''); const newTypes = ref<string[]>([]); const newGeometry = ref('{\n  "type": "Point",\n  "coordinates": [-5.99, 37.39]\n}');
 const editingId = ref(''); const drawing = ref(false); const drawingMode = ref<'POINT' | 'WAY' | 'POLYGON'>('POLYGON');
 const editingLocation = ref(false); const locationOptions = ref<LocationOption[]>([]); const locationLoading = ref(false); const locationManual = ref<string[]>([]); const locationForm = reactive({ continent: '', country: '', region: '', province: '', county: '', city: '', municipality: '', locality: '', continentCode: '', countryCode: '', regionCode: '', subdivisionCode: '', provinceCode: '', countyCode: '' });
 const locationEnrichmentSubmitting = ref(false);
@@ -50,11 +50,11 @@ const geometryDrawing = ref(false);
 const geometryMapEntities = ref<GeoEntity[]>([]);
 const selectedIndex = computed(() => entities.value.findIndex(item => item.id === selected.value?.id));
 const dirtySections = computed(() => selected.value ? dirtyEditorSections({
-  name: selected.value.name, nameNote: '', categories: categoryCodes(selected.value),
+  name: selected.value.name, website: selected.value.website || '', description: selected.value.description || '', nameNote: '', categories: categoryCodes(selected.value),
   geometry: JSON.stringify(selected.value.geometry || {}, null, 2), geometryType: selected.value.geometry?.type || 'Point', geometryNote: '',
   location: locationBaseline.value,
 }, {
-  name: editName.value, nameNote: editNote.value, categories: editTypes.value,
+  name: editName.value, website: editWebsite.value, description: editDescription.value, nameNote: editNote.value, categories: editTypes.value,
   geometry: geometryJson.value, geometryType: geometryType.value, geometryNote: geometryNote.value,
   location: editingLocation.value ? JSON.stringify([locationForm, locationManual.value]) : locationBaseline.value,
 }) : []);
@@ -136,6 +136,8 @@ function resetEditorFields(entity: GeoEntity): void {
   editingId.value = '';
   editingLocation.value = false;
   editName.value = entity.name;
+  editWebsite.value = entity.website || '';
+  editDescription.value = entity.description || '';
   editNote.value = '';
   geometryNote.value = '';
   geometryJson.value = JSON.stringify(entity.geometry || {}, null, 2);
@@ -408,6 +410,31 @@ async function saveName(): Promise<void> {
   await saveEditorSection('Name', () => myotaClient.patchGeodataEntityMetadata(entity.id,
     { name: editName.value.trim(), note: editNote.value, editorId: store.account?.id }, entity.version));
 }
+async function savePublicMetadata(): Promise<void> {
+  const entity = selected.value;
+  if (!entity) return;
+  if (!validWebsite(editWebsite.value) || editDescription.value.length > 2000) {
+    error.value = 'Enter an absolute HTTP or HTTPS website up to 2,048 characters and a plain-text description up to 2,000 characters.';
+    return;
+  }
+  await saveEditorSection('Website / description', () => myotaClient.patchGeodataEntityMetadata(entity.id,
+    { website: editWebsite.value.trim() || null, description: editDescription.value.trim() || null, note: editNote.value, editorId: store.account?.id }, entity.version));
+}
+function validWebsite(value: string): boolean {
+  const website = value.trim();
+  if (!website) return true;
+  if (website.length > 2048) return false;
+  try {
+    const url = new URL(website);
+    return ['http:', 'https:'].includes(url.protocol) && Boolean(url.hostname)
+      && !url.username && !url.password;
+  } catch { return false; }
+}
+function safeWebsite(value?: string | null): string | null {
+  if (!value) return null;
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : null; }
+  catch { return null; }
+}
 async function saveCategories(): Promise<void> {
   const entity = selected.value;
   if (!entity) return;
@@ -502,7 +529,7 @@ async function requestLocationEnrichment(): Promise<void> {
   }
 }
 function toggleNewType(code: string): void { newTypes.value = newTypes.value.includes(code) ? newTypes.value.filter(item => item !== code) : [...newTypes.value, code]; }
-async function createCandidate(): Promise<void> { if (!newName.value.trim() || !newTypes.value.length) { error.value = 'Enter a name and select at least one category.'; return; } try { const geometry = JSON.parse(newGeometry.value); await myotaClient.postGeodataProposal({ source: { name: 'Manual administration proposal', license: 'programme-supplied' }, proposerId: store.account?.id, entityTypes: newTypes.value, feature: { type: 'Feature', properties: { name: newName.value.trim() }, geometry } }); message.value = 'New candidate submitted.'; creating.value = false; newName.value = ''; newTypes.value = []; await load(); } catch (e) { setError(e instanceof SyntaxError ? new Error('Geometry must be valid JSON.') : e); } }
+async function createCandidate(): Promise<void> { if (!newName.value.trim() || !newTypes.value.length) { error.value = 'Enter a name and select at least one category.'; return; } if (!validWebsite(newWebsite.value) || newDescription.value.length > 2000) { error.value = 'Enter an absolute HTTP or HTTPS website up to 2,048 characters and a plain-text description up to 2,000 characters.'; return; } try { const geometry = JSON.parse(newGeometry.value); await myotaClient.postGeodataProposal({ source: { name: 'Manual administration proposal', license: 'programme-supplied' }, proposerId: store.account?.id, entityTypes: newTypes.value, feature: { type: 'Feature', properties: { name: newName.value.trim(), website: newWebsite.value.trim() || null, description: newDescription.value.trim() || null }, geometry } }); message.value = 'New candidate submitted.'; creating.value = false; newName.value = ''; newWebsite.value = ''; newDescription.value = ''; newTypes.value = []; await load(); } catch (e) { setError(e instanceof SyntaxError ? new Error('Geometry must be valid JSON.') : e); } }
 function setPage(next: number): void { page.value = next; load(); }
 watch(() => filters.continent, () => { filters.country = ''; filters.region = ''; filters.province = ''; filters.city = ''; });
 watch(() => filters.country, () => { filters.region = ''; filters.province = ''; filters.city = ''; });
@@ -567,8 +594,8 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
 <PageHeader :refresh="() => load()" :busy="loading"><button class="primary" @click="creating = !creating">New Candidate</button></PageHeader>
   <div v-if="message" class="notice" role="status">{{ message }}</div><div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict && selected" class="secondary" @click="reloadConflictedEntity">Reload selected entity</button></div>
   <article class="panel filter-panel"><div class="top-controls"><label>Programme<select v-model="filters.programme"><option value="">All programmes, including unassigned</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label></div><div class="geo-filter-grid"><label>Entity type<select v-model="filters.entityType"><option value="">All types</option><option v-for="category in categories" :key="category.code" :value="category.code">{{ category.label || category.code }}</option></select></label><label>Continent<select v-model="filters.continent" :disabled="locationLoading"><option value="">All continents</option><option v-for="item in locationOptions" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Country<select v-model="filters.country" :disabled="locationLoading || !locationCountries().length"><option value="">All countries</option><option v-for="item in locationCountries()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Region / subdivision<select v-model="filters.region" :disabled="locationLoading || !locationRegions().length"><option value="">All regions / subdivisions</option><option v-for="item in locationRegions()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>Province<select v-model="filters.province" :disabled="locationLoading || !locationProvinces().length"><option value="">All provinces</option><option v-for="item in locationProvinces()" :key="`${item.code || ''}-${item.name}`" :value="item.name">{{ locationOptionLabel(item) }}</option></select></label><label>City / municipality<select v-model="filters.city" :disabled="locationLoading || !locationCities().length"><option value="">All cities / municipalities</option><option v-for="item in locationCities()" :key="item.name" :value="item.name">{{ item.name }}</option></select></label></div><div class="status-filters"><span>Status:</span><label v-for="status in statuses" :key="status"><input type="checkbox" :checked="filters.status.includes(status)" @change="toggleStatus(status)">{{ status }}</label></div></article>
-  <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" required></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
-  <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small><small class="locator-values">4-character grid squares: {{ entity.maidenheadGridSquares4?.join(', ') || '—' }} · 6-character locators: {{ entity.maidenheadLocators6?.join(', ') || '—' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
+  <article v-if="creating" class="panel"><div class="panel-heading"><div><p class="eyebrow">MANUAL PROPOSAL</p><h2>New Candidate</h2><p class="muted">Manual proposals enter the candidate queue and are not approved automatically.</p></div></div><form class="form-grid" @submit.prevent="createCandidate"><label>Name<input v-model="newName" maxlength="240" required></label><label>Website<input v-model="newWebsite" type="url" maxlength="2048" placeholder="https://example.org"><small class="field-help">Optional HTTP or HTTPS address.</small></label><label class="wide">Description<textarea v-model="newDescription" maxlength="2000" placeholder="Plain text"></textarea></label><label>Programme scope<select v-model="filters.programme"><option value="">Unassigned / platform-wide</option><option v-for="programme in store.programmes" :key="programme.slug" :value="programme.slug">{{ programme.name }}</option></select></label><fieldset class="wide"><legend>Entity categories</legend><div class="checkbox-grid"><label v-for="category in categories" :key="category.code"><input type="checkbox" :checked="newTypes.includes(category.code)" @change="toggleNewType(category.code)">{{ category.label || category.code }}</label></div></fieldset><div class="form-actions wide"><button class="secondary" type="button" @click="startDrawing('POINT')">Draw point on map</button><button class="secondary" type="button" @click="startDrawing('WAY')">Draw way / trail</button><button class="secondary" type="button" @click="startDrawing('POLYGON')">Draw polygon</button></div><label class="wide">GeoJSON geometry<textarea v-model="newGeometry" class="code-editor" required></textarea><small class="field-help">Use the map buttons for interactive drawing, or enter a Point, LineString, MultiLineString, Polygon or MultiPolygon geometry.</small></label><div class="form-actions wide"><button class="primary" type="submit">Submit candidate</button><button class="secondary" type="button" @click="creating = false; drawing = false">Cancel</button></div></form></article>
+  <article class="panel"><div class="panel-heading"><div><h2>Entities</h2><small class="muted">{{ total }} matching entities · page {{ page }}</small></div><div class="toolbar"><label>Show <select v-model.number="pageSize"><option :value="25">25</option><option :value="50">50</option><option :value="100">100</option></select></label><label class="check-field"><input type="checkbox" :checked="allSelected" @change="toggleAll"><span>Select all</span></label><button v-if="!isManagement" class="primary" :disabled="!selectedIds.length" @click="bulkApprove">Change status to approved</button><button v-if="isGlobalAdmin" class="danger" :disabled="!selectedIds.length || deleting || preparingBulkDelete" @click="bulkDelete">{{ preparingBulkDelete ? 'Preparing deletion…' : 'Permanently delete entities' }}</button></div></div><div class="geo-list"><div v-for="entity in entities" :key="entity.id" class="geo-row" :class="{ selected: selected?.id === entity.id }"><input type="checkbox" :checked="selectedIds.includes(entity.id)" @change="toggleEntity(entity.id)"><button class="entity-link" @click="selectEntity(entity)"><strong>{{ entity.name }}</strong><small>{{ categoryCodes(entity).join(', ') || 'Uncategorised' }} · {{ locationValue(entity, 'city') || 'Location unavailable' }}</small><small v-if="entity.website || entity.description">{{ entity.website || 'No website' }}<template v-if="entity.description"> · {{ entity.description }}</template></small><small class="locator-values">4-character grid squares: {{ entity.maidenheadGridSquares4?.join(', ') || '—' }} · 6-character locators: {{ entity.maidenheadLocators6?.join(', ') || '—' }}</small></button><span class="status-pill" :class="entity.status.toLowerCase()">{{ entity.status }}</span></div><p v-if="loading" class="muted empty">Loading entities…</p><p v-else-if="!entities.length" class="muted empty">No entities match these filters.</p></div><div class="pagination"><button class="secondary" :disabled="page <= 1" @click="setPage(page - 1)">Previous</button><span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span><button class="secondary" :disabled="page * pageSize >= total" @click="setPage(page + 1)">Next</button></div></article>
   <article v-if="!isManagement || creating" class="panel map-panel"><div class="panel-heading"><div><h2>Map</h2><small class="muted">Selecting an entity centres the map and opens its details. Point entities are clustered at wider zoom levels.</small></div></div><LeafletMap :entities="entities" :selected-id="selected?.id" :drawing="drawing" :drawing-mode="drawingMode" height="680px" @select="selectEntity" @draw-created="onDrawCreated" /></article>
   <details v-else class="panel map-panel catalogue-map">
     <summary>Browse the catalogue on a map <small class="muted">Optional · click an entity to open its editor</small></summary>
@@ -602,6 +629,10 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
       </div>
       <span class="status-pill" :class="selected.status.toLowerCase()">{{ selected.status }}</span>
     </div>
+    <section class="entity-public-metadata" aria-label="Website and description">
+      <p><strong>Website:</strong> <a v-if="safeWebsite(selected.website)" :href="safeWebsite(selected.website)!" target="_blank" rel="noopener noreferrer">{{ selected.website }}</a><span v-else>{{ selected.website || 'Not provided' }}</span></p>
+      <p><strong>Description:</strong> {{ selected.description || 'Not provided' }}</p>
+    </section>
     <section v-show="!isManagement || editorTab === 'source'" class="form-section source-comparison">
       <div class="section-heading">
         <div>
@@ -615,7 +646,7 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
       </div>
     </section>
     <fieldset :disabled="editorSaving" class="editor-fields">
-    <p v-if="isManagement && !canEdit" class="read-only-note">Name, category and geometry edits require geodata review permission. Other actions depend on their own permissions.</p>
+    <p v-if="isManagement && !canEdit" class="read-only-note">Name, website, description, category and geometry edits require geodata review permission. Other actions depend on their own permissions.</p>
     <div class="editor-grid" :class="{ 'management-details-grid': isManagement }">
       <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity name</h3>
@@ -623,6 +654,9 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
         <label>Display name<input v-model="editName" :readonly="!canEdit"></label>
         <label>Name change note<textarea v-model="editNote" placeholder="Explain this name change"></textarea></label>
         <button class="primary" :disabled="!canEdit || !editName.trim()" @click="saveName">Save name</button>
+        <label>Website<input v-model="editWebsite" :readonly="!canEdit" type="url" maxlength="2048" placeholder="https://example.org"><small class="field-help">Absolute HTTP or HTTPS URL. Leave blank and save to clear.</small></label>
+        <label>Description<textarea v-model="editDescription" :readonly="!canEdit" maxlength="2000" placeholder="Plain text"></textarea><small class="field-help">Up to 2,000 characters. Leave blank and save to clear.</small></label>
+        <button class="secondary" :disabled="!canEdit || !(editWebsite !== (selected.website || '') || editDescription !== (selected.description || ''))" @click="savePublicMetadata">Save website and description</button>
       </section>
       <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity categories</h3>

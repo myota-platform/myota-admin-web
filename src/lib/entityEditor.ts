@@ -1,5 +1,7 @@
 export interface EntityEditorState {
   name: string;
+  website: string;
+  description: string;
   nameNote: string;
   categories: string[];
   geometry: string;
@@ -19,6 +21,7 @@ export function dirtyEditorSections(
 ): string[] {
   const sections: string[] = [];
   if (saved.name !== draft.name || draft.nameNote) sections.push('Name');
+  if (saved.website !== draft.website || saved.description !== draft.description) sections.push('Website / description');
   if (JSON.stringify(saved.categories) !== JSON.stringify(draft.categories)) sections.push('Categories');
   if (normalizedGeometry(saved.geometry) !== normalizedGeometry(draft.geometry)
     || saved.geometryType !== draft.geometryType || draft.geometryNote) {

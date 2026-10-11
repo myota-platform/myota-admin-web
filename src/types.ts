@@ -35,6 +35,8 @@ export interface GeoEntity {
   version?: number;
   id: string;
   name: string;
+  website?: string | null;
+  description?: string | null;
   status: string;
   entityType?: string;
   entityTypes?: string[] | EntityCategory[];

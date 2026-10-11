@@ -22,6 +22,7 @@ the admin web should not absorb those participant-only responsibilities.
 - Separate Geodata review and Entity management workspaces: review keeps filters,
   map, source comparison, status changes, and review decisions; management keeps
   the filtered catalogue, Leaflet popups, name/location/category editing,
+  Website/Description entry and maintenance,
   geometry editing, GIS administration, audit history, and permanent deletion
   warnings. Missing location metadata can be explicitly queued for asynchronous
   reverse-geocoding from the current geometry; Entity Management polls the

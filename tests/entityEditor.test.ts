@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { dirtyEditorSections, type EntityEditorState } from '../src/lib/entityEditor.ts';
 
 const saved: EntityEditorState = {
-  name: 'Parque', nameNote: '', categories: ['PARK', 'GARDEN'],
+  name: 'Parque', website: '', description: '', nameNote: '', categories: ['PARK', 'GARDEN'],
   geometry: '{"type":"Point","coordinates":[-5.99,37.39]}', geometryType: 'Point',
   geometryNote: '', location: '[{"country":"Spain"},[]]',
 };
@@ -26,4 +26,8 @@ test('notes and invalid JSON trigger discard protection', () => {
 test('saving one section does not clear another unsaved section', () => {
   const draft = { ...saved, name: 'New name', location: 'manual edit' };
   assert.deepEqual(dirtyEditorSections({ ...saved, name: draft.name }, draft), ['Location']);
+});
+
+test('website and description drafts are protected and independently tracked', () => {
+  assert.deepEqual(dirtyEditorSections(saved, { ...saved, website: 'https://example.org', description: 'A short description' }), ['Website / description']);
 });
