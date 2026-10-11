@@ -2,7 +2,6 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAppStore } from "../stores/app";
-import { apiRequest } from "../lib/api";
 import { availablePages, pageFor } from "../lib/adminNavigation";
 const store = useAppStore();
 const route = useRoute();
@@ -78,17 +77,8 @@ async function signOut(): Promise<void> {
   store.signOut();
   await router.push("/login");
 }
-async function openObservability(): Promise<void> {
-  error.value = "";
-  try {
-    await apiRequest("/v1/operations/observability-session");
-    window.location.assign("/observability/");
-  } catch (cause) {
-    error.value =
-      cause instanceof Error
-        ? cause.message
-        : "Unable to open metrics. Your current session remains active.";
-  }
+function openObservability(): void {
+  window.location.assign("/observability/");
 }
 </script>
 <template>

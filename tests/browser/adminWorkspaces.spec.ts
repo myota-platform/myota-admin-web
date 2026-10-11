@@ -121,16 +121,6 @@ async function fixtures(page: Page, scopes = ["*"], failure = "") {
     } else if (path.endsWith("/policy-drafts")) body = { items: [policy] };
     else if (path.endsWith("/content")) body = { items: [content] };
     else if (path.endsWith("/content/coverage")) body = { locales: [] };
-    else if (path === "/v1/operations/jetstream")
-      body = {
-        id: "broker",
-        capturedAt: "2026-10-09T10:00:00Z",
-        status: "HEALTHY",
-        streams: [],
-        errors: [],
-        pollSeconds: 10,
-        historyRetentionDays: 30,
-      };
     await route.fulfill({ json: body });
   });
   return { requests, writes, errors };
@@ -440,7 +430,7 @@ test("programme choice outage keeps the authenticated session and supports retry
 test("legacy SeaweedFS Admin bookmark redirects to the provisioned Grafana dashboard", async ({
   page,
 }) => {
-  await fixtures(page, ["operations.read"]);
+  await fixtures(page, ["observability.view"]);
   await page.route("**/observability/d/myota-object-storage", (route) =>
     route.fulfill({ status: 200, body: "Grafana dashboard" }),
   );

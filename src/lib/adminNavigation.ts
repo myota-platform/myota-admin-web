@@ -133,7 +133,7 @@ export const adminPages: AdminPage[] = [
     group: "Platform health",
     icon: "⌁",
     description: "Open authenticated Grafana metrics and dashboards.",
-    allowed: scope("operations.read", "observability.view"),
+    allowed: scope("observability.view"),
   },
 ];
 

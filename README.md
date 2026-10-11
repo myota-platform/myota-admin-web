@@ -78,10 +78,10 @@ The former Admin NATS/JetStream inspection page has been retired. Use the authen
 ### Observability access
 
 After signing in, choose **Platform health → Metrics & dashboards** in the sidebar.
-Grafana is served from `/observability/` on the same host. The UI refreshes its
-MyOTA access token before navigation and mirrors the short-lived token into a
-SameSite=Strict cookie scoped only to that path so Nginx can validate access
-through the operations session API, which calls the live identity API.
+Grafana is served from `/observability/` on the same host. The UI refreshes its MyOTA access token before navigation and mirrors the
+short-lived token into a SameSite=Strict cookie scoped only to that path.
+Nginx sends that bearer token to the Gateway's internal Grafana auth endpoint,
+which revalidates the token and current roles through the live Identity API.
 Sign-out clears both the browser token and the helper cookie. Grafana uses a
 distinct stable account ID per user. Current GLOBAL_OPERATOR/GLOBAL_ADMIN
 roles map to Editor and can create dashboards and panels; other observability
