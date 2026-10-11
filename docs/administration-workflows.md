@@ -98,6 +98,20 @@ map with the incoming and existing geometries in separate colours. The warning
 does not block confirmation; the administrator decides whether the record is a
 legitimate update, a separate entity, or should be rejected.
 
+## Entity catalogue management
+
+Open **Entity catalogue** and select an entity to open its management dialog.
+The **Website and description** section is at the top of the dialog, above the
+editing tabs, so the public metadata fields are visible immediately. Users
+with the geodata review permission can edit and save both values there; blank
+values clear them. Other users can inspect the values but cannot change them.
+
+Website accepts an optional absolute HTTP or HTTPS URL up to 2,048 characters.
+Description is optional plain text up to 2,000 characters. Saving uses the
+existing versioned Geodata metadata endpoint and its audit/concurrency checks.
+The separate review inspector shows the saved Website as a safe external link
+and displays missing legacy values as “Not provided”.
+
 ## Entity map
 
 The **Entity map** page is a read-only Leaflet view of the complete stored
