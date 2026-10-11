@@ -131,30 +131,6 @@ async function fixtures(page: Page, scopes = ["*"], failure = "") {
         pollSeconds: 10,
         historyRetentionDays: 30,
       };
-    else if (path === "/v1/operations/object-storage")
-      body = {
-        id: "storage",
-        capturedAt: "2026-10-09T10:00:00Z",
-        status: "HEALTHY",
-        version: "fixture",
-        s3Healthy: true,
-        metricsHealthy: true,
-        bucketsTruncated: false,
-        pollSeconds: 30,
-        historyRetentionDays: 30,
-        errors: [],
-        buckets: [],
-        volumes: [],
-        requests: [],
-        summary: {
-          reportedBuckets: 0,
-          objects: 0,
-          logicalBytes: 0,
-          physicalBytes: 0,
-          activeUploads: 0,
-          activeUploadBytes: 0,
-        },
-      };
     await route.fulfill({ json: body });
   });
   return { requests, writes, errors };
@@ -461,28 +437,13 @@ test("programme choice outage keeps the authenticated session and supports retry
   ).toBe("isolated-token");
 });
 
-test("operations pages retain live-data presentation, refresh controls and UTC timestamps", async ({
+test("legacy SeaweedFS Admin bookmark redirects to the provisioned Grafana dashboard", async ({
   page,
 }) => {
-  const state = await fixtures(page, ["operations.read"]);
-  for (const [path, title] of [["/object-storage", "SeaweedFS storage"]]) {
-    await page.goto(path);
-    await expect(
-      page.getByRole("heading", { name: title, exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "HEALTHY", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Refresh", exact: true }),
-    ).toBeEnabled();
-    await page.getByRole("button", { name: "Refresh", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "HEALTHY", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/2026-10-09 10:00:00 UTC/).first(),
-    ).toBeVisible();
-  }
-  expect(state.errors).toEqual([]);
+  await fixtures(page, ["operations.read"]);
+  await page.route("**/observability/d/myota-object-storage", (route) =>
+    route.fulfill({ status: 200, body: "Grafana dashboard" }),
+  );
+  await page.goto("/object-storage");
+  await expect(page).toHaveURL(/\/observability\/d\/myota-object-storage$/);
 });

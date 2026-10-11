@@ -62,8 +62,9 @@ the admin web should not absorb those participant-only responsibilities.
   token on every Grafana request. GLOBAL_OPERATOR/GLOBAL_ADMIN have Grafana
   Editor access; authorized observability readers have Viewer access.
   Prometheus, Alertmanager and Tempo remain private cluster services.
-- SeaweedFS storage at `/object-storage`: real health, bucket/size gauges,
-  filesystem capacity, S3 counters and paged history through operations APIs.
+- SeaweedFS monitoring uses the OpenTelemetry-backed Grafana dashboard. The
+  former `/object-storage` Admin route redirects to its provisioned SeaweedFS
+  dashboard; object-storage upload workflows are unchanged.
 
 The UI is programme-agnostic and does not encode any programme rules. It only
 edits configuration supplied by each programme.

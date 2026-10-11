@@ -128,15 +128,6 @@ export const adminPages: AdminPage[] = [
     allowed: scope("activity.read", "activity.admin"),
   },
   {
-    path: "/object-storage",
-    title: "SeaweedFS storage",
-    group: "Platform health",
-    icon: "▤",
-    description:
-      "Inspect storage health, bucket usage and recorded history without managing stored objects.",
-    allowed: scope("operations.read", "observability.view"),
-  },
-  {
     path: "/observability/",
     title: "Metrics & dashboards",
     group: "Platform health",

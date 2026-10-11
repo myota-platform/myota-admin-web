@@ -12,7 +12,7 @@ import AwardsView from "./views/AwardsView.vue";
 import GeodataImportsView from "./views/GeodataImportsView.vue";
 import GeodataWorkspaceView from "./views/GeodataWorkspaceView.vue";
 import EntityMapView from "./views/EntityMapView.vue";
-import ObjectStorageView from "./views/ObjectStorageView.vue";
+import SeaweedFsMonitoringRedirectView from "./views/SeaweedFsMonitoringRedirectView.vue";
 import AccessDeniedView from "./views/AccessDeniedView.vue";
 import { pageFor } from "./lib/adminNavigation";
 import { useAppStore } from "./stores/app";
@@ -84,8 +84,8 @@ const routes = [
   },
   {
     path: "/object-storage",
-    component: ObjectStorageView,
-    meta: { title: "SeaweedFS storage" },
+    component: SeaweedFsMonitoringRedirectView,
+    meta: { title: "SeaweedFS monitoring moved" },
   },
   {
     path: "/access-denied",
