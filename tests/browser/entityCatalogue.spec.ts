@@ -183,6 +183,9 @@ test('website and plain-text description display and save with optimistic concur
   await expect(website).toHaveValue('https://alamillo.example');
   await expect(description).toBeVisible();
   await expect(description).toHaveValue('Riverside park');
+  await expect(editor.locator('.entity-details-section h3')).toHaveText([
+    'Entity name', 'Entity categories', 'Website and description',
+  ]);
   await website.fill('https://new.example');
   await description.fill('New plain text');
   await website.fill('javascript:alert(1)');
@@ -199,7 +202,7 @@ test('website and plain-text description display and save with optimistic concur
   await expect(editor.locator('.editor-dirty')).toHaveCount(0);
   expect(submittedEntityWrites.map(write => [write.method, write.path])).toEqual([
     ['PATCH', '/v1/geodata/entities/park-1'],
-    ['PUT', '/v1/geodata/entities/park-1'],
+    ['PUT', '/v1/geodata/entities/park-1/categories'],
   ]);
   expect(submittedEntityWrites[0].payload).toMatchObject({
     name: 'Updated park details', website: 'https://new.example', description: 'New plain text',
