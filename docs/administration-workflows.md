@@ -101,16 +101,19 @@ legitimate update, a separate entity, or should be rejected.
 ## Entity catalogue management
 
 Open **Entity catalogue** and select an entity to open its management dialog.
-The **Website and description** section is at the top of the dialog, above the
-editing tabs, so the public metadata fields are visible immediately. Users
-with the geodata review permission can edit and save both values there; blank
-values clear them. Other users can inspect the values but cannot change them.
+The **Name & categories** tab presents Entity name, Entity categories, Website,
+and Description in that order. Users with the geodata review permission can
+edit these fields and use the single **Save details** action; blank Website or
+Description values clear them. Name and public metadata use the existing
+versioned metadata endpoint, while categories use the existing versioned
+category endpoint. The UI refreshes the entity revision between requests and
+reports partial completion if a later request fails. Other users can inspect
+the values but cannot change them.
 
 Website accepts an optional absolute HTTP or HTTPS URL up to 2,048 characters.
-Description is optional plain text up to 2,000 characters. Saving uses the
-existing versioned Geodata metadata endpoint and its audit/concurrency checks.
-The separate review inspector shows the saved Website as a safe external link
-and displays missing legacy values as “Not provided”.
+Description is optional plain text up to 2,000 characters. The separate review
+inspector shows the saved Website as a safe external link and displays missing
+legacy values as “Not provided”.
 
 ## Entity map
 
