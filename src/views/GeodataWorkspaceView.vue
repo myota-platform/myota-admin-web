@@ -404,21 +404,56 @@ async function saveEditorSection(section: string, update: () => Promise<unknown>
     editorSaving.value = false;
   }
 }
-async function saveName(): Promise<void> {
+async function saveEntityDetails(): Promise<void> {
   const entity = selected.value;
-  if (!entity || !editName.value.trim()) return;
-  await saveEditorSection('Name', () => myotaClient.patchGeodataEntityMetadata(entity.id,
-    { name: editName.value.trim(), note: editNote.value, editorId: store.account?.id }, entity.version));
-}
-async function savePublicMetadata(): Promise<void> {
-  const entity = selected.value;
-  if (!entity) return;
+  if (!entity || !canEdit.value || !editName.value.trim() || editorSaving.value) return;
   if (!validWebsite(editWebsite.value) || editDescription.value.length > 2000) {
     error.value = 'Enter an absolute HTTP or HTTPS website up to 2,048 characters and a plain-text description up to 2,000 characters.';
     return;
   }
-  await saveEditorSection('Website / description', () => myotaClient.patchGeodataEntityMetadata(entity.id,
-    { website: editWebsite.value.trim() || null, description: editDescription.value.trim() || null, note: editNote.value, editorId: store.account?.id }, entity.version));
+  const metadataChanged = editName.value.trim() !== entity.name
+    || (editWebsite.value.trim() || null) !== (entity.website || null)
+    || (editDescription.value.trim() || null) !== (entity.description || null);
+  const categoriesChanged = JSON.stringify([...editTypes.value].sort())
+    !== JSON.stringify(categoryCodes(entity).sort());
+  if (!metadataChanged && !categoriesChanged) return;
+
+  editorSaving.value = true;
+  error.value = '';
+  message.value = '';
+  let metadataSaved = false;
+  try {
+    if (metadataChanged) {
+      await myotaClient.patchGeodataEntityMetadata(entity.id, {
+        name: editName.value.trim(),
+        website: editWebsite.value.trim() || null,
+        description: editDescription.value.trim() || null,
+        note: editNote.value,
+        editorId: store.account?.id,
+      }, entity.version);
+      metadataSaved = true;
+      await refreshSelection();
+    }
+    if (categoriesChanged && selected.value) {
+      await myotaClient.putGeodataEntityCategories(selected.value.id, {
+        entityTypes: editTypes.value,
+        editorId: store.account?.id,
+      }, selected.value.version);
+      await refreshSelection();
+    }
+    editNote.value = '';
+    message.value = 'Entity details saved.';
+    await load();
+  } catch (cause) {
+    if (metadataSaved) {
+      message.value = categoriesChanged
+        ? 'Name and public details saved. Category changes remain unsaved; review and retry the details section.'
+        : 'Name and public details were saved, but the latest entity state could not be reloaded.';
+    }
+    setError(cause);
+  } finally {
+    editorSaving.value = false;
+  }
 }
 function validWebsite(value: string): boolean {
   const website = value.trim();
@@ -434,12 +469,6 @@ function safeWebsite(value?: string | null): string | null {
   if (!value) return null;
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : null; }
   catch { return null; }
-}
-async function saveCategories(): Promise<void> {
-  const entity = selected.value;
-  if (!entity) return;
-  await saveEditorSection('Categories', () => myotaClient.putGeodataEntityCategories(entity.id,
-    { entityTypes: editTypes.value, editorId: store.account?.id }, entity.version));
 }
 async function saveGeometry(): Promise<void> {
   const entity = selected.value;
@@ -613,23 +642,11 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
           <button class="secondary" :disabled="editorSaving || selectedIndex < 0 || selectedIndex >= entities.length - 1" @click="navigateEntity(1)">Next entity</button>
         </div>
       </div>
-      <section class="entity-public-metadata management-public-metadata" aria-label="Website and description">
-        <div>
-          <h3>Website and description</h3>
-          <p class="field-help">Public entity details. Website must use HTTP or HTTPS; descriptions are plain text.</p>
-        </div>
-        <fieldset :disabled="editorSaving" class="public-metadata-fields">
-          <label>Website<input v-model="editWebsite" :readonly="!canEdit" type="url" maxlength="2048" placeholder="https://example.org"></label>
-          <label>Description<textarea v-model="editDescription" :readonly="!canEdit" maxlength="2000" placeholder="Plain text"></textarea></label>
-          <p v-if="!canEdit" class="read-only-note">Editing these details requires geodata review permission.</p>
-          <button class="secondary" :disabled="!canEdit || !(editWebsite !== (selected.website || '') || editDescription !== (selected.description || ''))" @click="savePublicMetadata">Save website and description</button>
-        </fieldset>
-      </section>
       <nav class="editor-tabs" aria-label="Entity editing sections">
         <button v-for="tab in editorTabs" :key="tab.id" type="button" class="secondary"
           :aria-current="editorTab === tab.id ? 'page' : undefined" @click="setEditorTab(tab.id)">{{ tab.label }}</button>
       </nav>
-      <p v-if="dirtySections.length" class="editor-dirty" role="status">Unsaved: {{ dirtySections.join(', ') }}. Save each edited section before closing.</p>
+      <p v-if="dirtySections.length" class="editor-dirty" role="status">Unsaved: {{ dirtySections.join(', ') }}. Save the entity details section before closing.</p>
       <div v-if="message" class="notice" role="status">{{ message }}</div>
       <div v-if="error" class="error-card" role="alert">{{ error }} <button v-if="entityConflict" class="secondary" :disabled="editorSaving" @click="reloadConflictedEntity">Reload selected entity</button></div>
     </template>
@@ -660,20 +677,21 @@ onMounted(async () => { await Promise.all([loadCategories(), loadLocationOptions
     <fieldset :disabled="editorSaving" class="editor-fields">
     <p v-if="isManagement && !canEdit" class="read-only-note">Name, website, description, category and geometry edits require geodata review permission. Other actions depend on their own permissions.</p>
     <div class="editor-grid" :class="{ 'management-details-grid': isManagement }">
-      <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
+      <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section entity-details-section">
         <h3>Entity name</h3>
         <p class="field-help">Name changes are audited and do not alter the original source.</p>
         <label>Display name<input v-model="editName" :readonly="!canEdit"></label>
         <label>Name change note<textarea v-model="editNote" placeholder="Explain this name change"></textarea></label>
-        <button class="primary" :disabled="!canEdit || !editName.trim()" @click="saveName">Save name</button>
-      </section>
-      <section v-if="isManagement" v-show="editorTab === 'details'" class="form-section">
         <h3>Entity categories</h3>
         <p class="field-help">Categories are shared master data. Select one or more categories; changes are audited.</p>
         <div class="checkbox-grid">
           <label v-for="category in categories" :key="category.code"><input v-model="editTypes" :disabled="!canEdit" type="checkbox" :value="category.code">{{ category.label || category.code }}</label>
         </div>
-        <button class="secondary" :disabled="!canEdit" @click="saveCategories">Save categories</button>
+        <h3>Website and description</h3>
+        <p class="field-help">Public entity details. Website must use HTTP or HTTPS; descriptions are plain text.</p>
+        <label>Website<input v-model="editWebsite" :readonly="!canEdit" type="url" maxlength="2048" placeholder="https://example.org"></label>
+        <label>Description<textarea v-model="editDescription" :readonly="!canEdit" maxlength="2000" placeholder="Plain text"></textarea></label>
+        <button class="primary" :disabled="!canEdit || !editName.trim() || dirtySections.length === 0" @click="saveEntityDetails">Save details</button>
       </section>
       <section v-show="!isManagement || editorTab === 'geometry'" class="form-section gis-admin-section" :class="{ wide: isManagement }">
         <h3>{{ isManagement ? 'GIS administration & geometry editor' : 'Review decision' }}</h3>

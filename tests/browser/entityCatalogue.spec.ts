@@ -4,9 +4,11 @@ import type { GeoEntity } from '../../src/types';
 // Real Vue, Leaflet and Geoman with isolated HTTP fixtures: no live mutations
 // or public tile traffic are used to qualify presentation/state transitions.
 const submittedProposals: any[] = [];
+const submittedEntityWrites: Array<{ path: string; method: string; payload: any }> = [];
 
 test.beforeEach(async ({ page }) => {
   submittedProposals.length = 0;
+  submittedEntityWrites.length = 0;
   const entities: GeoEntity[] = [
     { id: 'park-1', name: 'Parque del Alamillo', website: 'https://alamillo.example', description: 'Riverside park', status: 'CANDIDATE', version: 1,
       entityTypes: ['PARK'], geometry: { type: 'Polygon', coordinates: [[
@@ -26,7 +28,7 @@ test.beforeEach(async ({ page }) => {
     let body: unknown = {};
     if (path === '/v1/identity/me') body = { id: 'test-admin', roles: [{ role: 'GLOBAL_OPERATOR' }] };
     else if (path === '/v1/programmes') body = { items: [] };
-    else if (path === '/v1/entity-types') body = { items: [{ code: 'PARK', label: 'Park' }] };
+    else if (path === '/v1/entity-types') body = { items: [{ code: 'PARK', label: 'Park' }, { code: 'NATURE_RESERVE', label: 'Nature reserve' }] };
     else if (path === '/v1/geodata/location-options') body = { continents: [] };
     else if (path === '/v1/geodata/entities') body = { items: entities, total: entities.length };
     else if (path.startsWith('/v1/geodata/entities/')) {
@@ -37,9 +39,11 @@ test.beforeEach(async ({ page }) => {
         if (request.method() !== 'GET') {
           expect(request.headers()['if-match']).toBeDefined();
           const payload = request.postDataJSON();
+          submittedEntityWrites.push({ path, method: request.method(), payload });
           if (payload.name) entity.name = payload.name;
           if ('website' in payload) entity.website = payload.website;
           if ('description' in payload) entity.description = payload.description;
+          if (payload.entityTypes) entity.entityTypes = payload.entityTypes;
           if (payload.geometry) entity.geometry = payload.geometry;
           entity.version = (entity.version || 0) + 1;
         }
@@ -82,7 +86,7 @@ test('edit in place, preserve batch/page and guard unsaved navigation and closin
   page.once('dialog', dialog => dialog.dismiss());
   await page.keyboard.press('Escape');
   await expect(editor).toBeVisible();
-  await editor.getByRole('button', { name: 'Save name', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Edited park', exact: true })).toBeVisible();
   await expect(editor).toHaveCount(0);
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
@@ -104,7 +108,7 @@ test('geometry map has real vertex controls and replacement drafts remain unsave
   await expect(editor.locator('.editor-dirty')).toContainText('Geometry');
   await editor.getByRole('button', { name: 'Name & categories' }).click();
   await editor.getByLabel('Display name').fill('Geometry draft park');
-  await editor.getByRole('button', { name: 'Save name', exact: true }).click();
+  await editor.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(editor.locator('.editor-dirty')).toContainText('Geometry');
   await editor.getByRole('button', { name: 'Geometry', exact: true }).click();
   await editor.getByRole('button', { name: 'Save geometry', exact: true }).click();
@@ -182,12 +186,25 @@ test('website and plain-text description display and save with optimistic concur
   await website.fill('https://new.example');
   await description.fill('New plain text');
   await website.fill('javascript:alert(1)');
-  await editor.getByRole('button', { name: 'Save website and description' }).click();
+  await editor.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(editor.getByRole('alert')).toContainText('absolute HTTP or HTTPS');
+  expect(submittedEntityWrites).toHaveLength(0);
+  await editor.getByLabel('Display name').fill('Updated park details');
+  await editor.getByLabel('Nature reserve', { exact: true }).check();
   await website.fill('https://new.example');
-  await editor.getByRole('button', { name: 'Save website and description' }).click();
+  await editor.getByRole('button', { name: 'Save details', exact: true }).click();
   await expect(website).toHaveValue('https://new.example');
   await expect(description).toHaveValue('New plain text');
+  await expect(editor.getByLabel('Display name')).toHaveValue('Updated park details');
+  await expect(editor.locator('.editor-dirty')).toHaveCount(0);
+  expect(submittedEntityWrites.map(write => [write.method, write.path])).toEqual([
+    ['PATCH', '/v1/geodata/entities/park-1'],
+    ['PUT', '/v1/geodata/entities/park-1'],
+  ]);
+  expect(submittedEntityWrites[0].payload).toMatchObject({
+    name: 'Updated park details', website: 'https://new.example', description: 'New plain text',
+  });
+  expect(submittedEntityWrites[1].payload.entityTypes).toEqual(['PARK', 'NATURE_RESERVE']);
   await editor.getByRole('button', { name: 'Close', exact: true }).click();
   await page.locator('.geo-row').nth(1).getByRole('button').click();
   const legacyManagement = page.getByRole('dialog');
