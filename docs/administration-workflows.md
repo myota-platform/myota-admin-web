@@ -75,8 +75,14 @@ deployment's configured geodata import limit, and the run remains visible after
 the page is refreshed.
 
 Click a pre-processed record's name to open a Leaflet map preview centered on
-that record. This preview is informational and does not change its validation
-state. When the review is complete, use **Mark import as processed**. After
+that record. The modal offers **Promote to candidate**, **Promote to approved**,
+and **Reject entity**. Promotion runs asynchronously; the modal checks the
+promotion queue result and advances only after the selected item succeeds.
+Failures remain on the current item and can be retried. Rejection is applied
+synchronously by the import API. When no pending item remains, the modal says
+the last item was processed and offers **Close review**.
+
+When the review is complete, use **Mark import as processed**. After
 confirmation, the service permanently removes the run's staged candidate and
 promotion-queue rows, records who finalized it, changes the run to
 `PROCESSED`, and keeps only the top-level import summary in the modal. Any
