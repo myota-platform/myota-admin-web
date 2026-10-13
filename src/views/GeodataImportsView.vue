@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import PageHeader from "../components/PageHeader.vue";
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { apiRequest } from '../lib/api';
 import { canCancelPreprocessing, fetchPreprocessingQueue, importCounts, importStatusLabel, isPreprocessing, isReviewable } from '../lib/geodataImports';
 import type { ImportPage, ImportRun } from '../lib/geodataImports';
@@ -13,6 +13,7 @@ import type { EntityCategory, GeoEntity } from '../types';
 interface DuplicateMatch extends GeoEntity { entityId?: string; distanceMeters?: number; matchType?: string }
 interface ImportCandidate {
   id: string;
+  ordinal?: number;
   name?: string;
   geom?: { type: string; coordinates: unknown };
   geometry?: { type: string; coordinates: unknown };
@@ -23,6 +24,11 @@ interface ImportCandidate {
   possibleDuplicates?: DuplicateMatch[];
 }
 interface CandidatePage { items: ImportCandidate[]; total?: number; nextPage?: number | null }
+interface ImportProcessingQueue {
+  id: string;
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  result?: { errors?: Array<{ candidateId?: string; message?: string }> };
+}
 
 const store = useAppStore();
 const categories = ref<EntityCategory[]>([]);
@@ -75,6 +81,15 @@ const uploadLabel = computed(() => {
 });
 const candidateDetail = ref<ImportCandidate | null>(null);
 const candidateMapEntities = ref<GeoEntity[]>([]);
+const candidateActionStatus = ref('');
+const candidateActionError = ref('');
+const candidateReviewComplete = ref(false);
+const candidateAdvancePending = ref(false);
+const candidateActionKey = ref<string | null>(null);
+const candidateActionQueueId = ref<string | null>(null);
+const candidatePendingAction = ref<'CANDIDATE' | 'APPROVED' | 'REJECTED' | null>(null);
+const candidateDialog = ref<HTMLElement | null>(null);
+const candidateInvoker = ref<HTMLElement | null>(null);
 const pageController = new AbortController();
 let uploadController: AbortController | null = null;
 let uploadMetadata: UploadMetadata | null = null;
@@ -139,6 +154,142 @@ async function loadCandidates(): Promise<void> {
   if (!totalCandidates.value) selectedCandidateIds.value = [];
   const lastPage = Math.max(1, Math.ceil(totalCandidates.value / pageSize));
   if (page.value > lastPage) { page.value = lastPage; await loadCandidates(); }
+}
+async function fetchAllPendingCandidates(runId: string): Promise<ImportCandidate[]> {
+  const result: ImportCandidate[] = [];
+  let requestedPage = 1;
+  while (true) {
+    const data = await readApi<CandidatePage>(
+      `/v1/geodata/imports/${encodeURIComponent(runId)}/candidates?page=${requestedPage}&pageSize=100`,
+    );
+    result.push(...(data.items || []));
+    if (!data.nextPage) return result;
+    requestedPage = data.nextPage;
+  }
+}
+async function waitForPromotionQueue(runId: string, queueId: string, candidateId: string): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const queue = await readApi<ImportProcessingQueue>(
+      `/v1/geodata/imports/${encodeURIComponent(runId)}/processing-queues/${encodeURIComponent(queueId)}`,
+    );
+    if (queue.status === 'COMPLETED') {
+      const error = queue.result?.errors?.find(item => item.candidateId === candidateId);
+      if (error) throw new Error(error.message || 'Entity promotion failed. Retry this item.');
+      return;
+    }
+    if (queue.status === 'FAILED') {
+      const error = queue.result?.errors?.find(item => item.candidateId === candidateId);
+      candidateActionKey.value = null;
+      candidateActionQueueId.value = null;
+      candidatePendingAction.value = null;
+      throw new Error(error?.message || 'Entity promotion failed. Retry this item.');
+    }
+    await new Promise<void>((resolve, reject) => {
+      const finish = (): void => {
+        pageController.signal.removeEventListener('abort', abort);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, 750);
+      const abort = (): void => {
+        window.clearTimeout(timer);
+        pageController.signal.removeEventListener('abort', abort);
+        reject(new DOMException('The page was closed.', 'AbortError'));
+      };
+      pageController.signal.addEventListener('abort', abort, { once: true });
+    });
+  }
+  throw new Error('Promotion is still running. Retry to check its status again.');
+}
+async function advanceImportReview(runId: string, processed: ImportCandidate): Promise<void> {
+  const pending = await fetchAllPendingCandidates(runId);
+  if (pending.some(item => item.id === processed.id)) {
+    throw new Error('The action completed, but this entity is still pending. Refresh the import and retry.');
+  }
+  const currentOrdinal = processed.ordinal ?? -1;
+  const next = pending.find(item => (item.ordinal ?? -1) > currentOrdinal) || pending[0];
+  await refreshImports(true);
+  if (!next) {
+    candidateReviewComplete.value = true;
+    candidateAdvancePending.value = false;
+    candidateActionStatus.value = 'The last pending item in this import has been processed. You can close this map.';
+    return;
+  }
+  page.value = Math.floor(pending.indexOf(next) / pageSize) + 1;
+  await loadCandidates();
+  openCandidate(next);
+  candidateActionStatus.value = `Next item: ${next.name || 'Unnamed entity'}.`;
+}
+async function decideCandidate(action: 'CANDIDATE' | 'APPROVED' | 'REJECTED'): Promise<void> {
+  const runId = selectedRun.value?.id;
+  const candidate = candidateDetail.value;
+  if (!runId || !candidate || actionBusy.value || candidateReviewComplete.value || candidateAdvancePending.value) return;
+  if (candidatePendingAction.value && candidatePendingAction.value !== action) {
+    candidateActionError.value = 'The previous action has no confirmed result. Retry that same action before choosing a different one.';
+    return;
+  }
+  actionBusy.value = true;
+  candidatePendingAction.value = action;
+  let actionSucceeded = false;
+  candidateActionError.value = '';
+  candidateActionStatus.value = action === 'REJECTED'
+    ? 'Rejecting entity…'
+    : `Promoting entity to ${action.toLowerCase()}…`;
+  try {
+    if (action === 'REJECTED') {
+      await apiRequest(`/v1/geodata/imports/${encodeURIComponent(runId)}/candidates/validate`, {
+        method: 'POST',
+        body: JSON.stringify({ candidateIds: [candidate.id], validationStatus: 'REJECTED', reviewerId: store.account?.id }),
+        headers: { 'Idempotency-Key': candidateActionKey.value || (candidateActionKey.value = crypto.randomUUID()) },
+      });
+    } else {
+      if (!candidateActionKey.value) candidateActionKey.value = crypto.randomUUID();
+      if (!candidateActionQueueId.value) {
+        const queue = await apiRequest<ImportProcessingQueue>(`/v1/geodata/imports/${encodeURIComponent(runId)}/process`, {
+          method: 'POST',
+          body: JSON.stringify({ candidateIds: [candidate.id], targetStatus: action, processorId: store.account?.id }),
+          headers: { 'Idempotency-Key': candidateActionKey.value },
+        });
+        candidateActionQueueId.value = queue.id;
+      }
+      candidateActionStatus.value = 'Promotion queued. Waiting for the result…';
+      const queueId = candidateActionQueueId.value;
+      if (!queueId) throw new Error('Promotion queue was not returned by the service.');
+      await waitForPromotionQueue(runId, queueId, candidate.id);
+    }
+    candidateActionKey.value = null;
+    candidateActionQueueId.value = null;
+    candidatePendingAction.value = null;
+    actionSucceeded = true;
+    candidateAdvancePending.value = true;
+    await advanceImportReview(runId, candidate);
+    candidateAdvancePending.value = false;
+  } catch (cause) {
+    if (actionSucceeded) {
+      candidateActionStatus.value = 'Decision completed. Continue to load the next pending item.';
+      candidateActionError.value = `Could not load the next item: ${cause instanceof Error ? cause.message : String(cause)}`;
+    } else {
+      candidateActionStatus.value = '';
+      candidateActionError.value = cause instanceof Error ? cause.message : String(cause);
+    }
+  } finally {
+    actionBusy.value = false;
+  }
+}
+async function continueImportReview(): Promise<void> {
+  const runId = selectedRun.value?.id;
+  const candidate = candidateDetail.value;
+  if (!runId || !candidate || !candidateAdvancePending.value || actionBusy.value) return;
+  actionBusy.value = true;
+  candidateActionError.value = '';
+  try {
+    await advanceImportReview(runId, candidate);
+    candidateAdvancePending.value = false;
+  } catch (cause) {
+    candidateActionError.value = `Could not load the next item: ${cause instanceof Error ? cause.message : String(cause)}`;
+  } finally {
+    actionBusy.value = false;
+  }
 }
 async function refreshSelected(): Promise<void> {
   const id = selectedRun.value?.id;
@@ -336,8 +487,55 @@ function duplicateMatches(item: ImportCandidate): DuplicateMatch[] {
   return matches.map((match, index) => ({ ...match, id: match.id || match.entityId || `${item.id}-duplicate-${index}` }));
 }
 function candidateEntity(item: ImportCandidate): GeoEntity { return { id: item.id, name: item.name || 'Pre-processed entity', status: item.targetStatus || 'CANDIDATE', geometry: item.geometry || item.geom }; }
-function openCandidate(item: ImportCandidate): void { candidateDetail.value = item; candidateMapEntities.value = [candidateEntity(item), ...duplicateMatches(item)]; }
-function closeCandidate(): void { candidateDetail.value = null; candidateMapEntities.value = []; }
+function openCandidate(item: ImportCandidate, event?: MouseEvent): void {
+  candidateInvoker.value = event?.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : null;
+  candidateDetail.value = item;
+  candidateMapEntities.value = [candidateEntity(item), ...duplicateMatches(item)];
+  candidateReviewComplete.value = false;
+  candidateAdvancePending.value = false;
+  candidateActionStatus.value = '';
+  candidateActionError.value = '';
+  candidateActionKey.value = null;
+  candidateActionQueueId.value = null;
+  candidatePendingAction.value = null;
+  void nextTick(() => candidateDialog.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus());
+}
+function closeCandidate(): void {
+  if (actionBusy.value) return;
+  candidateDetail.value = null;
+  candidateMapEntities.value = [];
+  candidateReviewComplete.value = false;
+  candidateAdvancePending.value = false;
+  candidateActionStatus.value = '';
+  candidateActionError.value = '';
+  candidateActionKey.value = null;
+  candidateActionQueueId.value = null;
+  candidatePendingAction.value = null;
+  void nextTick(() => candidateInvoker.value?.focus());
+}
+function keepCandidateDialogKeyboardAccess(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeCandidate();
+    return;
+  }
+  if (event.key !== 'Tab' || !candidateDialog.value) return;
+  const controls = [...candidateDialog.value.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  )].filter(control => control.offsetParent !== null);
+  if (!controls.length) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 function refreshWhenVisible(): void { if (!document.hidden && !actionBusy.value && !selectingAll.value) void refreshImports(); }
 onMounted(async () => {
   await Promise.all([loadCategories(), refreshImports(true)]);
@@ -484,7 +682,7 @@ onBeforeUnmount(() => {
         <div class="candidate-list">
           <div v-for="item in candidates" :key="item.id" class="candidate-row">
             <input type="checkbox" :aria-label="`Select ${item.name || 'unnamed entity'}`" :checked="selectedCandidateIds.includes(item.id)" :disabled="actionBusy || selectingAll" @change="toggleCandidate(item.id)">
-            <button class="candidate-name" @click="openCandidate(item)">{{ item.name || 'Unnamed entity' }}</button>
+            <button class="candidate-name" @click="openCandidate(item, $event)">{{ item.name || 'Unnamed entity' }}</button>
             <span>{{ item.validationStatus || 'PENDING' }}</span>
             <span v-if="item.possibleDuplicate || duplicateMatches(item).length" class="warning-pill">Possible duplicate ({{ duplicateMatches(item).length }})</span>
             <small>{{ item.geometry?.type || item.geom?.type || 'No geometry' }}</small>
@@ -521,14 +719,27 @@ onBeforeUnmount(() => {
   </article>
 
   <div v-if="candidateDetail" class="modal-backdrop" role="presentation" @click.self="closeCandidate">
-    <article class="modal-card" role="dialog" aria-modal="true" aria-labelledby="candidate-preview-title">
+    <article ref="candidateDialog" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="candidate-preview-title" @keydown="keepCandidateDialogKeyboardAccess">
       <div class="panel-heading">
         <div><p class="eyebrow">PRE-PROCESSED RECORD</p><h2 id="candidate-preview-title">{{ candidateDetail.name || 'Unnamed entity' }}</h2><p class="muted">{{ candidateDetail.validationStatus || 'PENDING' }}<span v-if="duplicateMatches(candidateDetail).length"> · Possible duplicate</span></p></div>
-        <button class="quiet" @click="closeCandidate">Close</button>
+        <button class="quiet" :disabled="actionBusy" @click="closeCandidate">Close</button>
       </div>
       <p class="field-help">Compare the imported location with nearby existing entities.</p>
       <LeafletMap :entities="candidateMapEntities" :selected-id="candidateDetail.id" height="480px" :show-clusters="false" />
       <div v-for="duplicate in duplicateMatches(candidateDetail)" :key="duplicate.id" class="notice">Possible duplicate: {{ duplicate.name }}<span v-if="duplicate.matchType"> · {{ duplicate.matchType }}</span><span v-if="duplicate.distanceMeters != null"> · {{ duplicate.distanceMeters }} m away</span><span v-if="duplicate.entityId"> · {{ duplicate.entityId }}</span></div>
+      <p v-if="candidateActionStatus" class="notice" role="status" aria-live="polite">{{ candidateActionStatus }}</p>
+      <div v-if="candidateActionError" class="error-card" role="alert">{{ candidateActionError }}</div>
+      <div v-if="candidateReviewComplete" class="form-actions">
+        <button class="primary" @click="closeCandidate">Close review</button>
+      </div>
+      <div v-else-if="candidateAdvancePending" class="form-actions">
+        <button class="primary" :disabled="actionBusy" @click="continueImportReview">Continue to next item</button>
+      </div>
+      <div v-else class="map-actions" aria-label="Import review actions">
+        <button class="secondary" :disabled="actionBusy" @click="decideCandidate('CANDIDATE')">{{ actionBusy ? 'Processing…' : 'Promote to candidate' }}</button>
+        <button class="approve" :disabled="actionBusy" @click="decideCandidate('APPROVED')">Promote to approved</button>
+        <button class="reject" :disabled="actionBusy" @click="decideCandidate('REJECTED')">Reject entity</button>
+      </div>
     </article>
   </div>
 </template>
