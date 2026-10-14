@@ -13,6 +13,7 @@ import GeodataImportsView from "./views/GeodataImportsView.vue";
 import GeodataWorkspaceView from "./views/GeodataWorkspaceView.vue";
 import EntityMapView from "./views/EntityMapView.vue";
 import SeaweedFsMonitoringRedirectView from "./views/SeaweedFsMonitoringRedirectView.vue";
+import ObservabilityView from "./views/ObservabilityView.vue";
 import AccessDeniedView from "./views/AccessDeniedView.vue";
 import { pageFor } from "./lib/adminNavigation";
 import { useAppStore } from "./stores/app";
@@ -86,6 +87,11 @@ const routes = [
     path: "/object-storage",
     component: SeaweedFsMonitoringRedirectView,
     meta: { title: "SeaweedFS monitoring moved" },
+  },
+  {
+    path: "/grafana",
+    component: ObservabilityView,
+    meta: { title: "Metrics & dashboards" },
   },
   {
     path: "/access-denied",

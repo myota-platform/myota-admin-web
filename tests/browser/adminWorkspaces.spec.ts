@@ -437,3 +437,69 @@ test("legacy SeaweedFS Admin bookmark redirects to the provisioned Grafana dashb
   await page.goto("/object-storage");
   await expect(page).toHaveURL(/\/observability\/d\/myota-object-storage$/);
 });
+
+test("Grafana stays inside the Admin UI and renews its expiring auth cookie", async ({
+  page,
+}) => {
+  let refreshes = 0;
+  await page.addInitScript(() => {
+    const encode = (value: unknown) =>
+      btoa(JSON.stringify(value))
+        .replace(/=/g, "")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+    const token = `header.${encode({ exp: Math.floor(Date.now() / 1000) + 60 })}.signature`;
+    localStorage.setItem("myota_admin_access", token);
+    localStorage.setItem("myota_admin_refresh", "refresh-fixture");
+  });
+  await page.route("**/v1/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/v1/identity/auth/refresh") {
+      refreshes += 1;
+      const exp = Math.floor(Date.now() / 1000) + 600;
+      const payload = btoa(JSON.stringify({ exp }))
+        .replace(/=/g, "")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_");
+      return route.fulfill({
+        json: {
+          accessToken: `header.${payload}.signature`,
+          refreshToken: `refresh-fixture-${refreshes}`,
+        },
+      });
+    }
+    if (path === "/v1/identity/me")
+      return route.fulfill({
+        json: {
+          id: "admin-1",
+          displayName: "Admin",
+          email: "admin@example.test",
+          roles: [],
+          scopes: ["observability.view"],
+        },
+      });
+    if (path === "/v1/programmes")
+      return route.fulfill({ json: { items: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.route("**/observability/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "Grafana" }),
+  );
+
+  await page.goto("/dashboard");
+  await page.getByRole("link", { name: "Metrics & dashboards" }).click();
+  await expect(page).toHaveURL(/\/grafana$/);
+  await expect(page.getByTitle("MyOTA Grafana dashboards")).toHaveAttribute(
+    "src",
+    "/observability/",
+  );
+  await expect.poll(() => refreshes).toBe(1);
+
+  const cookie = (await page.context().cookies()).find(
+    (item) => item.name === "myota_admin_access",
+  );
+  expect(cookie?.path).toBe("/observability");
+  expect(cookie?.value).toBe(
+    await page.evaluate(() => localStorage.getItem("myota_admin_access")),
+  );
+});
