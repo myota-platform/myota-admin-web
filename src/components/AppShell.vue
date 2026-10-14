@@ -77,9 +77,6 @@ async function signOut(): Promise<void> {
   store.signOut();
   await router.push("/login");
 }
-function openObservability(): void {
-  window.location.assign("/observability/");
-}
 </script>
 <template>
   <a class="skip-link" href="#workspace-content">Skip to workspace</a>
@@ -141,18 +138,7 @@ function openObservability(): void {
       >
         <p class="nav-section-label">{{ section.label }}</p>
         <template v-for="item in section.items" :key="item.path">
-          <a
-            v-if="item.path === '/observability/'"
-            class="nav-item"
-            :href="item.path"
-            @click.prevent="openObservability"
-            ><span class="nav-item-icon" aria-hidden="true">{{
-              item.icon
-            }}</span
-            >{{ item.title }}</a
-          >
           <RouterLink
-            v-else
             class="nav-item"
             :class="{ active: route.path === item.path }"
             :aria-current="route.path === item.path ? 'page' : undefined"
