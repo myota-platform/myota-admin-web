@@ -1152,6 +1152,10 @@ onBeforeUnmount(() => {
           ><strong>{{ selectedCounts.confirmed }}</strong>
         </div>
         <div>
+          <span>Possible duplicate records</span
+          ><strong>{{ selectedCounts.duplicates }}</strong>
+        </div>
+        <div>
           <span>Entities promoted</span
           ><strong>{{ selectedCounts.promoted }}</strong>
         </div>
