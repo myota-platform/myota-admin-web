@@ -1152,6 +1152,10 @@ onBeforeUnmount(() => {
           ><strong>{{ selectedCounts.confirmed }}</strong>
         </div>
         <div>
+          <span>Possible duplicate records</span
+          ><strong>{{ selectedCounts.duplicates }}</strong>
+        </div>
+        <div>
           <span>Entities promoted</span
           ><strong>{{ selectedCounts.promoted }}</strong>
         </div>
@@ -1182,6 +1186,10 @@ onBeforeUnmount(() => {
           }}</strong>
         </div>
       </div>
+      <p v-if="selectedCounts.duplicates > 0" class="notice" role="status">
+        Possible duplicate locations were found. Open a flagged candidate to
+        compare its geometry and match distance before promotion.
+      </p>
       <p v-if="(selectedRun.attemptCount || 0) > 1" class="field-help">
         Processing attempt {{ selectedRun.attemptCount }}. Interrupted work is
         retried automatically.
