@@ -128,11 +128,11 @@ export const adminPages: AdminPage[] = [
     allowed: scope("activity.read", "activity.admin"),
   },
   {
-    path: "/observability/",
+    path: "/grafana",
     title: "Metrics & dashboards",
     group: "Platform health",
     icon: "⌁",
-    description: "Open authenticated Grafana metrics and dashboards.",
+    description: "View authenticated Grafana dashboards and metrics.",
     allowed: scope("observability.view"),
   },
 ];
